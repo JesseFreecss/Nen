@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Chaînes de texte de l'app, centralisées ici (bonne pratique : jamais de texte en dur). -->
+<resources>
+    <string name="app_name">GardeFou</string>
+</resources>

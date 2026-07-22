@@ -1,0 +1,280 @@
+package com.jesse.gardefou.vpn
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.net.VpnService
+import android.os.Build
+import android.os.ParcelFileDescriptor
+import android.util.Log
+import com.jesse.gardefou.MainActivity
+import com.jesse.gardefou.data.GardeFouDatabase
+import com.jesse.gardefou.data.KeywordRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.net.InetAddress
+
+/**
+ * Service VPN local de GardeFou.
+ *
+ * Principe (design "DNS sinkhole", comme DNS66/NetGuard) :
+ *  - On monte une interface VPN (TUN) qui déclare un serveur DNS fictif (10.111.0.1)
+ *    et ne route QUE le trafic vers cette adresse. Résultat : seules les requêtes DNS
+ *    du système passent par nous, tout le reste du trafic est inchangé.
+ *  - Pour chaque requête DNS lue, on extrait le domaine et on le compare aux mots-clés.
+ *      • correspondance -> on renvoie NXDOMAIN (domaine "inexistant") = blocage.
+ *      • sinon          -> on relaie la requête à un vrai résolveur (8.8.8.8) via un
+ *                          socket "protégé" (hors VPN) et on réinjecte la réponse.
+ *
+ * Limite connue : le DNS chiffré (DNS-over-HTTPS/TLS, "DNS privé") contourne ce filtre.
+ */
+class GardeFouVpnService : VpnService() {
+
+    // Portée coroutine du service : annulée à l'arrêt (SupervisorJob = un échec n'arrête pas les autres).
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private var vpnInterface: ParcelFileDescriptor? = null
+    @Volatile private var running = false
+
+    // Liste des mots-clés en mémoire, rechargée automatiquement depuis la base.
+    @Volatile private var blockedKeywords: List<String> = emptyList()
+
+    // Verrou pour sérialiser les écritures vers l'interface TUN (plusieurs coroutines écrivent).
+    private val writeLock = Any()
+    private var outStream: FileOutputStream? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            ACTION_STOP -> {
+                stopVpn()
+                return START_NOT_STICKY
+            }
+            else -> startVpn()
+        }
+        return START_STICKY
+    }
+
+    private fun startVpn() {
+        if (running) return
+
+        // 1) Foreground obligatoire : notification persistante + démarrage prioritaire.
+        startAsForeground()
+
+        // 2) Observe la base : la liste de mots-clés se met à jour toute seule.
+        val repo = KeywordRepository(GardeFouDatabase.getInstance(this).blockedKeywordDao())
+        scope.launch {
+            repo.observeAll().collect { list ->
+                blockedKeywords = list.map { it.keyword }
+            }
+        }
+
+        // 3) Monte l'interface VPN.
+        val tun = Builder()
+            .setSession("GardeFou")
+            .addAddress(VPN_ADDRESS, 32)        // adresse locale de l'interface
+            .addDnsServer(VPN_DNS)              // DNS système redirigé vers notre adresse fictive
+            .addRoute(VPN_DNS, 32)             // on ne route QUE le trafic DNS vers nous
+            .setBlocking(true)
+            .establish()
+
+        if (tun == null) {
+            Log.e(TAG, "establish() a renvoyé null (permission VPN absente ?)")
+            stopVpn()
+            return
+        }
+
+        vpnInterface = tun
+        outStream = FileOutputStream(tun.fileDescriptor)
+        running = true
+        VpnStateHolder.setRunning(true)
+
+        // 4) Lance la boucle de lecture des paquets.
+        scope.launch { runPacketLoop(tun) }
+        Log.i(TAG, "VPN démarré")
+    }
+
+    /** Boucle principale : lit un paquet IP, le traite s'il s'agit d'une requête DNS. */
+    private fun runPacketLoop(tun: ParcelFileDescriptor) {
+        val input = FileInputStream(tun.fileDescriptor)
+        val buffer = ByteArray(32_767)
+        try {
+            while (running) {
+                val length = input.read(buffer)
+                if (length <= 0) continue
+                handlePacket(buffer.copyOf(length))
+            }
+        } catch (e: Exception) {
+            if (running) Log.w(TAG, "Boucle de paquets interrompue : ${e.message}")
+        }
+    }
+
+    /** Analyse un paquet IPv4/UDP ; ne garde que les requêtes DNS (port 53). */
+    private fun handlePacket(packet: ByteArray) {
+        if (packet.size < 28) return
+        val version = (packet[0].toInt() ushr 4) and 0xF
+        if (version != 4) return                       // on ne gère que l'IPv4
+        val ihl = (packet[0].toInt() and 0xF) * 4       // longueur de l'en-tête IP
+        val protocol = packet[9].toInt() and 0xFF
+        if (protocol != 17) return                      // 17 = UDP
+
+        val srcIp = packet.copyOfRange(12, 16)
+        val dstIp = packet.copyOfRange(16, 20)
+        val srcPort = readU16(packet, ihl)
+        val dstPort = readU16(packet, ihl + 2)
+        if (dstPort != 53) return                       // pas du DNS
+
+        val dnsStart = ihl + 8                           // après en-têtes IP + UDP
+        if (dnsStart >= packet.size) return
+        val dnsQuery = packet.copyOfRange(dnsStart, packet.size)
+        val domain = DnsPacket.extractDomain(dnsQuery)
+
+        if (domain != null && isBlocked(domain)) {
+            // Réponse NXDOMAIN : on inverse source/destination.
+            val response = DnsPacket.buildNxDomainResponse(dnsQuery)
+            val reply = DnsPacket.buildUdpPacket(dstIp, srcIp, dstPort, srcPort, response)
+            writePacket(reply)
+            Log.i(TAG, "BLOQUÉ : $domain")
+        } else {
+            // Relais vers le vrai résolveur, puis réinjection de la réponse.
+            scope.launch {
+                val response = forwardToUpstream(dnsQuery) ?: return@launch
+                val reply = DnsPacket.buildUdpPacket(dstIp, srcIp, dstPort, srcPort, response)
+                writePacket(reply)
+            }
+        }
+    }
+
+    /** true si le domaine contient un des mots-clés bloqués (insensible à la casse). */
+    private fun isBlocked(domain: String): Boolean {
+        val lower = domain.lowercase()
+        return blockedKeywords.any { it.isNotEmpty() && lower.contains(it) }
+    }
+
+    /** Envoie la requête DNS à un résolveur externe via un socket protégé (hors VPN). */
+    private fun forwardToUpstream(query: ByteArray): ByteArray? {
+        return try {
+            DatagramSocket().use { socket ->
+                protect(socket)                 // CRUCIAL : ce socket ne repasse pas par le VPN
+                socket.soTimeout = 5_000
+                val server = InetAddress.getByName(UPSTREAM_DNS)
+                socket.send(DatagramPacket(query, query.size, server, 53))
+                val buf = ByteArray(4_096)
+                val resp = DatagramPacket(buf, buf.size)
+                socket.receive(resp)
+                buf.copyOf(resp.length)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Relais DNS échoué : ${e.message}")
+            null
+        }
+    }
+
+    /** Écrit un paquet dans l'interface TUN (synchronisé entre coroutines). */
+    private fun writePacket(packet: ByteArray) {
+        synchronized(writeLock) {
+            try {
+                outStream?.write(packet)
+            } catch (e: Exception) {
+                Log.w(TAG, "Écriture TUN échouée : ${e.message}")
+            }
+        }
+    }
+
+    private fun stopVpn() {
+        running = false
+        VpnStateHolder.setRunning(false)
+        try {
+            vpnInterface?.close()
+        } catch (_: Exception) {
+        }
+        vpnInterface = null
+        outStream = null
+        scope.cancel()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+        Log.i(TAG, "VPN arrêté")
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (running) stopVpn()
+    }
+
+    // --- Foreground / notification ---
+
+    private fun startAsForeground() {
+        val manager = getSystemService(NotificationManager::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "Protection GardeFou",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply { description = "Indique que la protection est active" }
+            manager.createNotificationChannel(channel)
+        }
+
+        val openApp = PendingIntent.getActivity(
+            this, 0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification: Notification = Notification.Builder(this, CHANNEL_ID)
+            .setContentTitle("GardeFou")
+            .setContentText("Protection active — filtrage DNS")
+            .setSmallIcon(com.jesse.gardefou.R.mipmap.ic_launcher)
+            .setContentIntent(openApp)
+            .setOngoing(true)
+            .build()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
+    }
+
+    private fun readU16(data: ByteArray, pos: Int): Int =
+        ((data[pos].toInt() and 0xFF) shl 8) or (data[pos + 1].toInt() and 0xFF)
+
+    companion object {
+        private const val TAG = "GardeFouVpn"
+
+        private const val VPN_ADDRESS = "10.111.0.2"   // adresse de l'interface locale
+        private const val VPN_DNS = "10.111.0.1"       // DNS fictif intercepté par nous
+        private const val UPSTREAM_DNS = "8.8.8.8"      // résolveur réel pour les domaines autorisés
+
+        private const val CHANNEL_ID = "gardefou_protection"
+        private const val NOTIFICATION_ID = 1
+
+        const val ACTION_START = "com.jesse.gardefou.vpn.START"
+        const val ACTION_STOP = "com.jesse.gardefou.vpn.STOP"
+
+        /** Démarre le service (à appeler APRÈS avoir obtenu la permission VPN). */
+        fun start(context: Context) {
+            val intent = Intent(context, GardeFouVpnService::class.java).setAction(ACTION_START)
+            context.startForegroundService(intent)
+        }
+
+        /** Demande l'arrêt du service. */
+        fun stop(context: Context) {
+            val intent = Intent(context, GardeFouVpnService::class.java).setAction(ACTION_STOP)
+            context.startService(intent)
+        }
+    }
+}

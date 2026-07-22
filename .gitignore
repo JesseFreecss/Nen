@@ -1,0 +1,19 @@
+# Fichiers de build générés
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+/build/
+/app/build/
+/captures/
+.externalNativeBuild/
+.cxx/
+
+# Sortie APK / bundles
+*.apk
+*.aab
+
+# Clés de signature (ne JAMAIS committer)
+*.jks
+*.keystore

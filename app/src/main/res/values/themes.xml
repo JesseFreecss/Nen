@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Thème XML "système" de l'app, appliqué à l'application et à l'activité (manifeste).
+    En Compose, l'UI est réellement stylée par GardeFouTheme (code Kotlin) ; ce thème XML
+    ne sert qu'au tout premier rendu (fond de fenêtre) avant que Compose ne prenne la main.
+    Parent = thème plateforme sans barre d'action, pour éviter d'ajouter la dépendance
+    com.google.android.material.
+-->
+<resources>
+    <style name="Theme.GardeFou" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

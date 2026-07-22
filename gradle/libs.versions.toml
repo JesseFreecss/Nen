@@ -1,0 +1,44 @@
+# Catalogue de versions centralisé (Gradle Version Catalog).
+# Un seul endroit pour gérer les numéros de version et les coordonnées des dépendances.
+# On y référence ensuite via libs.xxx dans les build.gradle.kts.
+
+[versions]
+agp = "8.7.3"                    # Android Gradle Plugin
+kotlin = "2.0.21"                # Kotlin (2.0+ = plugin Compose séparé requis)
+coreKtx = "1.15.0"               # Extensions Kotlin du framework Android
+lifecycleRuntimeKtx = "2.8.7"    # Cycle de vie (lifecycle-aware components)
+activityCompose = "1.9.3"        # Pont Activity <-> Compose (setContent)
+composeBom = "2024.12.01"        # BOM : aligne toutes les versions Compose entre elles
+lifecycleViewmodelCompose = "2.8.7"  # viewModel() dans un Composable
+ksp = "2.0.21-1.0.28"            # Kotlin Symbol Processing (génération de code Room)
+room = "2.6.1"                   # Base de données locale (SQLite via Room)
+coroutines = "1.9.0"             # Programmation asynchrone (kotlinx.coroutines)
+
+[libraries]
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+# Le BOM ne fixe pas une lib mais un ensemble de versions cohérentes de Compose.
+androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+# Ces libs Compose n'ont PAS de version : elle est fournie par le BOM ci-dessus.
+androidx-ui = { group = "androidx.compose.ui", name = "ui" }
+androidx-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
+androidx-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+androidx-material3 = { group = "androidx.compose.material3", name = "material3" }
+androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycleViewmodelCompose" }
+androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycleRuntimeKtx" }
+
+# Room (persistance) : runtime + extensions Kotlin/coroutines + compilateur (via KSP).
+androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
+androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
+androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+
+# Coroutines (asynchrone)
+kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
