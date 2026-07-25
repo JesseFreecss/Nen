@@ -28,9 +28,17 @@ interface BlockedKeywordDao {
     @Query("SELECT keyword FROM blocked_keywords")
     suspend fun getAllKeywords(): List<String>
 
-    // IGNORE : insérer un doublon exact ne provoque pas d'erreur, il est simplement ignoré.
+    // IGNORE : insérer un doublon (même mot-clé) ne provoque pas d'erreur, il est simplement ignoré.
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(keyword: BlockedKeyword)
+
+    /**
+     * Insertion en masse (import de liste). Room exécute automatiquement toutes les
+     * insertions d'un même appel @Insert dans UNE SEULE transaction : c'est bien plus
+     * rapide que des milliers d'insert() individuels, et atomique (tout ou rien).
+     */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAll(keywords: List<BlockedKeyword>)
 
     @Delete
     suspend fun delete(keyword: BlockedKeyword)

@@ -6,7 +6,9 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.net.IpPrefix
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -47,7 +49,16 @@ class GardeFouVpnService : VpnService() {
     private var vpnInterface: ParcelFileDescriptor? = null
     @Volatile private var running = false
 
-    // Liste des mots-clés en mémoire, rechargée automatiquement depuis la base.
+    // Règles de blocage gardées EN MÉMOIRE (rechargées automatiquement depuis la base),
+    // pour ne jamais interroger Room à chaque paquet DNS (chemin critique en performance).
+    //
+    // Deux structures selon la nature de l'entrée :
+    //  - blockedDomains : domaines exacts (ex. issus d'un import "hosts") -> Set pour un
+    //    test O(1) par suffixe (www.youtube.com, youtube.com, com...). Idéal pour de très
+    //    grandes listes (plusieurs milliers de domaines).
+    //  - blockedKeywords : mots-clés courts saisis par l'utilisateur -> test par sous-chaîne
+    //    (liste courte, le coût linéaire reste négligeable).
+    @Volatile private var blockedDomains: Set<String> = emptySet()
     @Volatile private var blockedKeywords: List<String> = emptyList()
 
     // Verrou pour sérialiser les écritures vers l'interface TUN (plusieurs coroutines écrivent).
@@ -75,18 +86,46 @@ class GardeFouVpnService : VpnService() {
         val repo = KeywordRepository(GardeFouDatabase.getInstance(this).blockedKeywordDao())
         scope.launch {
             repo.observeAll().collect { list ->
-                blockedKeywords = list.map { it.keyword }
+                val domains = HashSet<String>()
+                val keywords = ArrayList<String>()
+                for (item in list) {
+                    val k = item.keyword
+                    if (k.isEmpty()) continue
+                    // Un domaine complet (contient un point, pas d'espace) -> Set exact ;
+                    // sinon c'est un mot-clé -> correspondance par sous-chaîne.
+                    if (k.contains('.') && !k.contains(' ')) domains.add(k) else keywords.add(k)
+                }
+                blockedDomains = domains
+                blockedKeywords = keywords
             }
         }
 
         // 3) Monte l'interface VPN.
-        val tun = Builder()
+        val builder = Builder()
             .setSession("GardeFou")
             .addAddress(VPN_ADDRESS, 32)        // adresse locale de l'interface
             .addDnsServer(VPN_DNS)              // DNS système redirigé vers notre adresse fictive
             .addRoute(VPN_DNS, 32)             // on ne route QUE le trafic DNS vers nous
             .setBlocking(true)
-            .establish()
+
+        // Android Auto sans fil : la connexion passe par un lien Wi-Fi Direct (plage
+        // 192.168.49.0/24) piloté par l'app "gearhead". On l'exclut du VPN pour ne pas
+        // gêner l'appairage. excludeRoute() n'existe qu'à partir d'Android 13 (API 33) ;
+        // sur les versions antérieures ce n'est pas nécessaire car on ne route de toute
+        // façon que le trafic DNS (VPN_DNS/32), donc la plage Wi-Fi Direct n'est pas captée.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            builder.excludeRoute(IpPrefix(InetAddress.getByName(WIFI_DIRECT_SUBNET), 24))
+        }
+
+        // Exclut aussi l'app Android Auto elle-même du tunnel (défense en profondeur).
+        // addDisallowedApplication lève NameNotFoundException si l'app n'est pas installée.
+        try {
+            builder.addDisallowedApplication(ANDROID_AUTO_PACKAGE)
+        } catch (e: PackageManager.NameNotFoundException) {
+            Log.d(TAG, "Android Auto (gearhead) non installé, exclusion ignorée")
+        }
+
+        val tun = builder.establish()
 
         if (tun == null) {
             Log.e(TAG, "establish() a renvoyé null (permission VPN absente ?)")
@@ -155,9 +194,23 @@ class GardeFouVpnService : VpnService() {
         }
     }
 
-    /** true si le domaine contient un des mots-clés bloqués (insensible à la casse). */
+    /** true si le domaine est bloqué (insensible à la casse). */
     private fun isBlocked(domain: String): Boolean {
         val lower = domain.lowercase()
+
+        // 1) Correspondance exacte de domaine ou d'un domaine parent (rapide, O(nb de labels)).
+        //    Ex. pour "www.youtube.com" on teste "www.youtube.com", "youtube.com", "com".
+        if (blockedDomains.isNotEmpty()) {
+            var candidate = lower
+            while (true) {
+                if (blockedDomains.contains(candidate)) return true
+                val dot = candidate.indexOf('.')
+                if (dot < 0) break
+                candidate = candidate.substring(dot + 1)
+            }
+        }
+
+        // 2) Mots-clés utilisateur : correspondance par sous-chaîne.
         return blockedKeywords.any { it.isNotEmpty() && lower.contains(it) }
     }
 
@@ -258,6 +311,10 @@ class GardeFouVpnService : VpnService() {
         private const val VPN_ADDRESS = "10.111.0.2"   // adresse de l'interface locale
         private const val VPN_DNS = "10.111.0.1"       // DNS fictif intercepté par nous
         private const val UPSTREAM_DNS = "8.8.8.8"      // résolveur réel pour les domaines autorisés
+
+        // Android Auto sans fil : plage Wi-Fi Direct et paquet de l'app à exclure du VPN.
+        private const val WIFI_DIRECT_SUBNET = "192.168.49.0"
+        private const val ANDROID_AUTO_PACKAGE = "com.google.android.projection.gearhead"
 
         private const val CHANNEL_ID = "gardefou_protection"
         private const val NOTIFICATION_ID = 1

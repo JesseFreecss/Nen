@@ -53,6 +53,25 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="VPN local de filtrage DNS pour contrôle de contenu personnel" />
         </service>
+
+        <!--
+            Service d'accessibilité (étape 3). La permission BIND_ACCESSIBILITY_SERVICE est
+            imposée par le système : seul Android peut lier ce service. L'utilisateur doit
+            l'activer manuellement dans Réglages > Accessibilité. La config (apps surveillées,
+            types d'événements) est dans @xml/accessibility_service_config.
+        -->
+        <service
+            android:name=".accessibility.GardeFouAccessibilityService"
+            android:exported="false"
+            android:label="@string/accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
     </application>
 
 </manifest>

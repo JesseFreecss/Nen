@@ -2,4 +2,8 @@
 <!-- Chaînes de texte de l'app, centralisées ici (bonne pratique : jamais de texte en dur). -->
 <resources>
     <string name="app_name">GardeFou</string>
+
+    <!-- Service d'accessibilité : nom et description affichés dans les réglages système. -->
+    <string name="accessibility_service_label">Protection GardeFou</string>
+    <string name="accessibility_service_description">Surveille les navigateurs et YouTube pour détecter les contenus filtrés (URL et YouTube Shorts). GardeFou ne collecte ni ne transmet aucune donnée : l\'analyse reste entièrement sur l\'appareil.</string>
 </resources>

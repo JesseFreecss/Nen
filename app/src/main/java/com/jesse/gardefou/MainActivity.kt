@@ -2,11 +2,14 @@ package com.jesse.gardefou
 
 import android.Manifest
 import android.app.Activity
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -18,11 +21,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -30,7 +38,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jesse.gardefou.accessibility.GardeFouAccessibilityService
 import com.jesse.gardefou.blocklist.BlocklistSection
 import com.jesse.gardefou.ui.theme.GardeFouTheme
 import com.jesse.gardefou.vpn.GardeFouVpnService
@@ -63,6 +75,20 @@ fun ProtectionScreen(modifier: Modifier = Modifier) {
 
     // État marche/arrêt du VPN, observé depuis le service via VpnStateHolder.
     val isProtected by VpnStateHolder.running.collectAsStateWithLifecycle()
+
+    // État "service d'accessibilité activé ?". Rafraîchi à chaque retour au premier plan
+    // (ON_RESUME), notamment quand l'utilisateur revient des réglages système.
+    var a11yEnabled by remember { mutableStateOf(isAccessibilityServiceEnabled(context)) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                a11yEnabled = isAccessibilityServiceEnabled(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     // Lanceur pour la boîte de dialogue système "Autoriser GardeFou à configurer un VPN ?".
     // Si l'utilisateur accepte (RESULT_OK), on démarre réellement le service.
@@ -139,12 +165,61 @@ fun ProtectionScreen(modifier: Modifier = Modifier) {
             modifier = Modifier.padding(top = 16.dp)
         )
 
+        // Surveillance in-app (service d'accessibilité) : état + accès aux réglages système.
+        // Android ne permet pas d'activer ce service par programme : l'utilisateur doit le
+        // faire manuellement. On l'y guide en ouvrant directement la page Accessibilité.
+        Text(
+            text = if (a11yEnabled) "Surveillance in-app : activée"
+                   else "Surveillance in-app : désactivée",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = if (a11yEnabled) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.error,
+            modifier = Modifier.padding(top = 24.dp)
+        )
+
+        if (!a11yEnabled) {
+            Text(
+                text = "Pour filtrer les URL dans les navigateurs et détecter les YouTube "
+                       + "Shorts, activez « Protection GardeFou » dans les réglages "
+                       + "d'accessibilité.",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+            OutlinedButton(
+                onClick = {
+                    context.startActivity(
+                        Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                },
+                modifier = Modifier.padding(top = 8.dp)
+            ) {
+                Text("Ouvrir les réglages d'accessibilité")
+            }
+        }
+
         // Liste des mots-clés : prend la place restante (poids 1) pour son défilement interne.
         BlocklistSection(
             modifier = Modifier
                 .weight(1f)
                 .padding(top = 32.dp)
         )
+    }
+}
+
+/**
+ * Indique si le service d'accessibilité de GardeFou est actuellement activé par l'utilisateur.
+ * On lit la liste système des services activés (Settings.Secure) et on y cherche notre composant.
+ */
+private fun isAccessibilityServiceEnabled(context: Context): Boolean {
+    val expected = ComponentName(context, GardeFouAccessibilityService::class.java)
+    val enabledServices = Settings.Secure.getString(
+        context.contentResolver,
+        Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+    ) ?: return false
+    return enabledServices.split(':').any { entry ->
+        ComponentName.unflattenFromString(entry) == expected
     }
 }
 

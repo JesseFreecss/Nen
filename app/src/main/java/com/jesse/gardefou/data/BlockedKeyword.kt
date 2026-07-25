@@ -2,6 +2,7 @@ package com.jesse.gardefou.data
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
@@ -10,8 +11,14 @@ import androidx.room.PrimaryKey
  *
  * @Entity => Room crée une table SQLite "blocked_keywords" à partir de cette classe.
  * Chaque propriété devient une colonne.
+ *
+ * Index UNIQUE sur `keyword` : accélère les recherches et rend l'import en masse
+ * idempotent (les doublons sont ignorés grâce à OnConflictStrategy.IGNORE).
  */
-@Entity(tableName = "blocked_keywords")
+@Entity(
+    tableName = "blocked_keywords",
+    indices = [Index(value = ["keyword"], unique = true)]
+)
 data class BlockedKeyword(
     // Clé primaire auto-incrémentée (0 = "laisse Room choisir l'id à l'insertion").
     @PrimaryKey(autoGenerate = true)

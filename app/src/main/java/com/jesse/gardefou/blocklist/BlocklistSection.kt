@@ -1,15 +1,20 @@
 package com.jesse.gardefou.blocklist
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -38,6 +43,17 @@ fun BlocklistSection(
 ) {
     // Liste observée depuis le ViewModel (se met à jour toute seule à chaque changement).
     val keywords by viewModel.keywords.collectAsStateWithLifecycle()
+
+    // État de l'import de liste (progression + résultat du dernier import).
+    val importing by viewModel.importing.collectAsStateWithLifecycle()
+    val lastImportCount by viewModel.lastImportCount.collectAsStateWithLifecycle()
+
+    // Sélecteur de fichier système : renvoie l'Uri du fichier hosts choisi (ou null si annulé).
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) viewModel.importFromUri(uri)
+    }
 
     // État local du champ de saisie.
     var input by remember { mutableStateOf("") }
@@ -69,6 +85,37 @@ fun BlocklistSection(
                 }
             ) {
                 Text("Ajouter")
+            }
+        }
+
+        // Import en masse d'une liste au format hosts (0.0.0.0 domaine.com).
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = { importLauncher.launch("text/*") },
+                enabled = !importing
+            ) {
+                Text("Importer une liste")
+            }
+            if (importing) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp
+                )
+                Text(
+                    text = "Import en cours…",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            } else if (lastImportCount != null) {
+                Text(
+                    text = "$lastImportCount domaine(s) importé(s)",
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
         }
 
