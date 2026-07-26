@@ -13,6 +13,14 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <!-- Afficher la notification de protection (Android 13+). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!--
+        Demander l'exclusion des optimisations de batterie. Sans elle, le système place l'app
+        dans un « bucket » restreint après quelques heures d'inactivité et tue le service VPN,
+        ce qui désactive la protection sans prévenir.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Relancer la protection après un redémarrage du téléphone. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:allowBackup="true"
@@ -72,6 +80,21 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
         </service>
+
+        <!--
+            Relance la protection au démarrage du téléphone. exported="true" est obligatoire :
+            c'est le système (un process externe) qui envoie BOOT_COMPLETED.
+            directBootAware reste à false car on lit les SharedPreferences, inaccessibles
+            avant le premier déverrouillage.
+        -->
+        <receiver
+            android:name=".vpn.BootReceiver"
+            android:exported="true"
+            android:directBootAware="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

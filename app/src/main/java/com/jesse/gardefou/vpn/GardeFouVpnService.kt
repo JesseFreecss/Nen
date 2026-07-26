@@ -68,9 +68,14 @@ class GardeFouVpnService : VpnService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                // Arrêt DEMANDÉ par l'utilisateur : on oublie l'intention, pour ne pas
+                // relancer la protection au prochain démarrage du téléphone.
+                ProtectionPrefs.setEnabled(this, false)
                 stopVpn()
                 return START_NOT_STICKY
             }
+            // intent est null quand le système redémarre le service après l'avoir tué
+            // (conséquence de START_STICKY) : on retombe ici et le VPN se remonte seul.
             else -> startVpn()
         }
         return START_STICKY
@@ -137,6 +142,8 @@ class GardeFouVpnService : VpnService() {
         outStream = FileOutputStream(tun.fileDescriptor)
         running = true
         VpnStateHolder.setRunning(true)
+        // Le VPN tourne : on note l'intention pour pouvoir le relancer après un redémarrage.
+        ProtectionPrefs.setEnabled(this, true)
 
         // 4) Lance la boucle de lecture des paquets.
         scope.launch { runPacketLoop(tun) }
@@ -155,6 +162,13 @@ class GardeFouVpnService : VpnService() {
             }
         } catch (e: Exception) {
             if (running) Log.w(TAG, "Boucle de paquets interrompue : ${e.message}")
+        }
+        // Sortie de boucle alors qu'on se croit actif (interface fermée par le système,
+        // changement de réseau...) : plus aucun paquet n'est filtré. On arrête pour de bon
+        // plutôt que d'afficher une protection active qui ne protège plus rien.
+        if (running) {
+            Log.w(TAG, "Boucle de paquets terminée de façon inattendue, arrêt du VPN")
+            stopVpn()
         }
     }
 
@@ -253,10 +267,29 @@ class GardeFouVpnService : VpnService() {
         }
         vpnInterface = null
         outStream = null
-        scope.cancel()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
         Log.i(TAG, "VPN arrêté")
+        // En dernier : stopVpn() peut être appelé DEPUIS une coroutine du scope (boucle de
+        // paquets), et scope.cancel() interromprait alors le reste de cette méthode.
+        scope.cancel()
+    }
+
+    /**
+     * Appelé par le système quand l'autorisation VPN nous est retirée : l'utilisateur l'a
+     * révoquée, ou une autre app a pris la main (Android n'autorise qu'un seul VPN actif).
+     *
+     * L'implémentation par défaut se contente d'un stopSelf() brutal, qui laisserait l'app
+     * afficher « protection activée » alors que le tunnel est mort. On passe donc par
+     * stopVpn() pour remettre l'état à plat.
+     *
+     * On ne touche pas à ProtectionPrefs : l'utilisateur n'a pas renoncé à la protection,
+     * elle sera donc retentée au prochain redémarrage.
+     */
+    override fun onRevoke() {
+        Log.w(TAG, "Autorisation VPN révoquée (autre app VPN ?), arrêt")
+        stopVpn()
+        super.onRevoke()
     }
 
     override fun onDestroy() {

@@ -2,14 +2,18 @@ package com.jesse.gardefou
 
 import android.Manifest
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -46,6 +50,7 @@ import com.jesse.gardefou.accessibility.GardeFouAccessibilityService
 import com.jesse.gardefou.blocklist.BlocklistSection
 import com.jesse.gardefou.ui.theme.GardeFouTheme
 import com.jesse.gardefou.vpn.GardeFouVpnService
+import com.jesse.gardefou.vpn.ProtectionPrefs
 import com.jesse.gardefou.vpn.VpnStateHolder
 
 /**
@@ -79,11 +84,17 @@ fun ProtectionScreen(modifier: Modifier = Modifier) {
     // État "service d'accessibilité activé ?". Rafraîchi à chaque retour au premier plan
     // (ON_RESUME), notamment quand l'utilisateur revient des réglages système.
     var a11yEnabled by remember { mutableStateOf(isAccessibilityServiceEnabled(context)) }
+
+    // État « app exclue des optimisations de batterie ? ». Sans cette exclusion, le système
+    // finit par tuer le service VPN en arrière-plan et la protection se coupe toute seule.
+    var batteryExempt by remember { mutableStateOf(isIgnoringBatteryOptimizations(context)) }
+
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 a11yEnabled = isAccessibilityServiceEnabled(context)
+                batteryExempt = isIgnoringBatteryOptimizations(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -105,6 +116,19 @@ fun ProtectionScreen(modifier: Modifier = Modifier) {
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { /* accordée ou non : le service fonctionne dans les deux cas */ }
+
+    // Reprise après un arrêt subi : si l'utilisateur avait laissé la protection active mais
+    // que le VPN ne tourne pas (service tué par le système, et pas toujours relancé par
+    // Android), on le remonte dès l'ouverture de l'app. Sans autorisation VPN encore valide
+    // on ne fait rien : ce serait ouvrir une boîte de dialogue sans que l'utilisateur ait
+    // rien demandé.
+    LaunchedEffect(isProtected) {
+        if (!isProtected && ProtectionPrefs.isEnabled(context) &&
+            VpnService.prepare(context) == null
+        ) {
+            GardeFouVpnService.start(context)
+        }
+    }
 
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -199,6 +223,33 @@ fun ProtectionScreen(modifier: Modifier = Modifier) {
             }
         }
 
+        // Optimisations de batterie : cause n°1 des coupures spontanées de la protection.
+        // On n'affiche le bloc que si l'exclusion manque, pour ne pas encombrer l'écran.
+        if (!batteryExempt) {
+            Text(
+                text = "Batterie : protection fragile",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = 24.dp)
+            )
+            Text(
+                text = "Sans exclusion des optimisations de batterie, le système peut "
+                       + "arrêter GardeFou en arrière-plan et la protection se coupe toute "
+                       + "seule. Sur Xiaomi, pensez aussi à autoriser le « démarrage "
+                       + "automatique » et à mettre l'économiseur de batterie sur « Aucune "
+                       + "restriction » pour cette app.",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+            OutlinedButton(
+                onClick = { requestIgnoreBatteryOptimizations(context) },
+                modifier = Modifier.padding(top = 8.dp)
+            ) {
+                Text("Exclure des optimisations de batterie")
+            }
+        }
+
         // Liste des mots-clés : prend la place restante (poids 1) pour son défilement interne.
         BlocklistSection(
             modifier = Modifier
@@ -220,6 +271,43 @@ private fun isAccessibilityServiceEnabled(context: Context): Boolean {
     ) ?: return false
     return enabledServices.split(':').any { entry ->
         ComponentName.unflattenFromString(entry) == expected
+    }
+}
+
+/** Indique si l'app est déjà exclue des optimisations de batterie. */
+private fun isIgnoringBatteryOptimizations(context: Context): Boolean {
+    val pm = context.getSystemService(PowerManager::class.java) ?: return false
+    return pm.isIgnoringBatteryOptimizations(context.packageName)
+}
+
+/**
+ * Ouvre la demande système d'exclusion des optimisations de batterie.
+ *
+ * ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS affiche directement la boîte de dialogue
+ * « Autoriser ? », mais certaines surcouches ne l'implémentent pas : on se replie alors sur
+ * la liste complète des apps, où l'utilisateur choisit GardeFou à la main.
+ */
+private fun requestIgnoreBatteryOptimizations(context: Context) {
+    val direct = Intent(
+        Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+        Uri.parse("package:${context.packageName}")
+    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    try {
+        context.startActivity(direct)
+    } catch (e: ActivityNotFoundException) {
+        try {
+            context.startActivity(
+                Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (e2: ActivityNotFoundException) {
+            Toast.makeText(
+                context,
+                "Réglage introuvable : ouvrez Réglages > Batterie et retirez la restriction "
+                    + "pour GardeFou.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 }
 
