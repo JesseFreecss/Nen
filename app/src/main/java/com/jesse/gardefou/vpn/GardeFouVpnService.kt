@@ -20,6 +20,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -49,6 +50,10 @@ class GardeFouVpnService : VpnService() {
     private var vpnInterface: ParcelFileDescriptor? = null
     @Volatile private var running = false
 
+    // Démarrage en cours mais tunnel pas encore monté (cas du démarrage différé au boot) :
+    // évite qu'un second onStartCommand ne relance tout en parallèle.
+    @Volatile private var starting = false
+
     // Règles de blocage gardées EN MÉMOIRE (rechargées automatiquement depuis la base),
     // pour ne jamais interroger Room à chaque paquet DNS (chemin critique en performance).
     //
@@ -76,15 +81,22 @@ class GardeFouVpnService : VpnService() {
             }
             // intent est null quand le système redémarre le service après l'avoir tué
             // (conséquence de START_STICKY) : on retombe ici et le VPN se remonte seul.
-            else -> startVpn()
+            else -> startVpn(intent?.getLongExtra(EXTRA_START_DELAY_MS, 0L) ?: 0L)
         }
         return START_STICKY
     }
 
-    private fun startVpn() {
-        if (running) return
+    /**
+     * @param delayMs délai avant d'établir le tunnel. Utilisé au démarrage du téléphone, où
+     *   monter le tunnel trop tôt le fait révoquer par le système (voir [BootReceiver]).
+     */
+    private fun startVpn(delayMs: Long) {
+        if (running || starting) return
+        starting = true
 
         // 1) Foreground obligatoire : notification persistante + démarrage prioritaire.
+        //    À faire immédiatement, même si le tunnel est différé : le système exige
+        //    startForeground() dans les secondes qui suivent startForegroundService().
         startAsForeground()
 
         // 2) Observe la base : la liste de mots-clés se met à jour toute seule.
@@ -105,7 +117,18 @@ class GardeFouVpnService : VpnService() {
             }
         }
 
-        // 3) Monte l'interface VPN.
+        // 3) Monte l'interface VPN, éventuellement après un délai.
+        scope.launch {
+            if (delayMs > 0) {
+                Log.i(TAG, "Établissement du tunnel différé de ${delayMs / 1000} s")
+                delay(delayMs)
+            }
+            establishTunnel()
+        }
+    }
+
+    /** Construit et active l'interface TUN, puis démarre la boucle de lecture. */
+    private fun establishTunnel() {
         val builder = Builder()
             .setSession("GardeFou")
             .addAddress(VPN_ADDRESS, 32)        // adresse locale de l'interface
@@ -141,6 +164,7 @@ class GardeFouVpnService : VpnService() {
         vpnInterface = tun
         outStream = FileOutputStream(tun.fileDescriptor)
         running = true
+        starting = false
         VpnStateHolder.setRunning(true)
         // Le VPN tourne : on note l'intention pour pouvoir le relancer après un redémarrage.
         ProtectionPrefs.setEnabled(this, true)
@@ -260,6 +284,7 @@ class GardeFouVpnService : VpnService() {
 
     private fun stopVpn() {
         running = false
+        starting = false
         VpnStateHolder.setRunning(false)
         try {
             vpnInterface?.close()
@@ -355,9 +380,33 @@ class GardeFouVpnService : VpnService() {
         const val ACTION_START = "com.jesse.gardefou.vpn.START"
         const val ACTION_STOP = "com.jesse.gardefou.vpn.STOP"
 
-        /** Démarre le service (à appeler APRÈS avoir obtenu la permission VPN). */
-        fun start(context: Context) {
-            val intent = Intent(context, GardeFouVpnService::class.java).setAction(ACTION_START)
+        private const val EXTRA_START_DELAY_MS = "start_delay_ms"
+
+        /**
+         * Délai avant de monter le tunnel lors d'un démarrage du téléphone.
+         *
+         * Fenêtre de tir étroite, mesurée sur l'appareil :
+         *  - avant ~3,5 s : un composant privilégié du constructeur appelle `prepareVpn()`
+         *    pendant l'initialisation du système, ce qui révoque le tunnel qu'on vient de
+         *    monter ;
+         *  - après ~10 s : l'exemption temporaire accordée à l'app pour traiter
+         *    BOOT_COMPLETED expire (`temporaryAppAllowlistDuration=10000`), et `establish()`
+         *    est alors refusé car l'app est en arrière-plan.
+         *
+         * Le « VPN permanent » d'Android (always-on) est la solution robuste à ce problème :
+         * le système démarre alors le service lui-même, sans dépendre de cette fenêtre.
+         */
+        const val BOOT_START_DELAY_MS = 8_000L
+
+        /**
+         * Démarre le service (à appeler APRÈS avoir obtenu la permission VPN).
+         *
+         * @param delayMs délai avant d'établir le tunnel ; 0 pour un démarrage immédiat.
+         */
+        fun start(context: Context, delayMs: Long = 0L) {
+            val intent = Intent(context, GardeFouVpnService::class.java)
+                .setAction(ACTION_START)
+                .putExtra(EXTRA_START_DELAY_MS, delayMs)
             context.startForegroundService(intent)
         }
 

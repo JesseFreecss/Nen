@@ -13,9 +13,10 @@ import android.util.Log
  * de batterie, gestionnaire d'énergie du constructeur), la protection revient au plus tard
  * au redémarrage suivant, sans intervention.
  *
- * `VpnService.prepare()` renvoie null uniquement si l'autorisation VPN a déjà été accordée.
- * C'est la seule situation où on peut démarrer sans interface graphique : sinon il faudrait
- * afficher une boîte de dialogue système, impossible depuis un receiver.
+ * Le service est démarré tout de suite, mais il n'établit le tunnel qu'après un délai
+ * (voir BOOT_START_DELAY_MS) : pendant l'initialisation du système, un composant privilégié
+ * du constructeur (sur Xiaomi, SecurityCenter détient CONTROL_VPN) appelle `prepareVpn()`,
+ * ce qui réinitialise un tunnel fraîchement monté.
  *
  * Attention (Xiaomi/MIUI, Samsung...) : ce receiver n'est appelé que si le « démarrage
  * automatique » (autostart) est autorisé pour l'app dans les réglages du constructeur.
@@ -32,7 +33,7 @@ class BootReceiver : BroadcastReceiver() {
         }
 
         Log.i(TAG, "Redémarrage détecté, relance de la protection")
-        GardeFouVpnService.start(context)
+        GardeFouVpnService.start(context, GardeFouVpnService.BOOT_START_DELAY_MS)
     }
 
     private companion object {
