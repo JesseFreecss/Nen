@@ -2,9 +2,13 @@
 <!--
     Icône adaptative (API 26+) : le système compose le fond + le premier plan et
     applique la forme (cercle, carré arrondi...) selon le lanceur. minSdk 26 => pas
-    besoin des PNG de secours dans mipmap-*dpi.
+    besoin des PNG de secours pour les anciennes versions.
+
+    Les deux calques sont des PNG (mipmap-*dpi) tirés de la photo de référence : les
+    silhouettes de Gon et Killua découpées par seuillage, cadrées dans la zone sûre
+    centrale (~62 %) pour qu'aucun masque de lanceur ne rogne les têtes ou les pieds.
 -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@drawable/ic_launcher_background" />
-    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <background android:drawable="@mipmap/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
 </adaptive-icon>

@@ -130,7 +130,7 @@ class GardeFouVpnService : VpnService() {
     /** Construit et active l'interface TUN, puis démarre la boucle de lecture. */
     private fun establishTunnel() {
         val builder = Builder()
-            .setSession("GardeFou")
+            .setSession("Nen")
             .addAddress(VPN_ADDRESS, 32)        // adresse locale de l'interface
             .addDnsServer(VPN_DNS)              // DNS système redirigé vers notre adresse fictive
             .addRoute(VPN_DNS, 32)             // on ne route QUE le trafic DNS vers nous
@@ -342,8 +342,8 @@ class GardeFouVpnService : VpnService() {
         )
 
         val notification: Notification = Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("GardeFou")
-            .setContentText("Protection active — filtrage DNS")
+            .setContentTitle("Nen")
+            .setContentText("Ten actif — filtrage DNS")
             .setSmallIcon(com.jesse.gardefou.R.mipmap.ic_launcher)
             .setContentIntent(openApp)
             .setOngoing(true)

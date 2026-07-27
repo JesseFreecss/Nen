@@ -22,5 +22,5 @@ dependencyResolutionManagement {
 }
 
 // Nom affiché du projet racine + déclaration du module applicatif "app".
-rootProject.name = "GardeFou"
+rootProject.name = "Nen"
 include(":app")
