@@ -153,10 +153,18 @@ half4 main(float2 fragCoord) {
     float rimDarken = smoothstep(0.5, 1.0, dist);
     marble *= mix(1.18, 0.72, rimDarken);
 
-    float2 sparseCell = floor(p * 9.0 + t * 1.5);
-    float sparkleSeed = random(sparseCell);
+    // Paillettes : une cellule sur vingt environ porte un point, place au hasard dans le
+    // quart central de sa cellule. Colorer la cellule entiere, comme avant, donnait des
+    // carres ; la garder au centre evite qu'un point deborde sur la cellule voisine, qui
+    // l'ignore et le trancherait au carre elle aussi.
+    float2 sparkGrid = p * 4.5 + t * 1.5;
+    float2 cell = floor(sparkGrid);
+    float sparkleSeed = random(cell);
+    float2 spot = float2(0.3, 0.3) + 0.4 * float2(random(cell + 3.1), random(cell + 7.7));
+    float spotDist = length(fract(sparkGrid) - spot);
+    float point = 1.0 - smoothstep(0.0, 0.2, spotDist);
     float twinkle = sin(u_time * (2.0 + sparkleSeed * 6.0) + sparkleSeed * 40.0) * 0.5 + 0.5;
-    float sparkle = smoothstep(0.982, 1.0, sparkleSeed) * twinkle;
+    float sparkle = smoothstep(0.94, 1.0, sparkleSeed) * twinkle * point * point;
     marble += sparkle * float3(1.0, 0.85, 0.55) * 1.3;
 
     float inside = 1.0 - smoothstep(0.92, 1.02, dist);
