@@ -43,7 +43,9 @@ import kotlin.math.sin
 fun VowOrb(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    diameter: Dp = 56.dp,
+    // La sphère n'occupe que 60 % de la boîte : le reste est la marge dans laquelle le
+    // halo s'éteint. 78.dp de boîte redonnent donc la sphère de 56.dp d'avant.
+    diameter: Dp = 78.dp,
     seed: Int = 0
 ) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -86,8 +88,8 @@ private fun VowOrbFluid(
 
 /**
  * Bruit fractal (fbm) déformé par son propre champ (domain warp), coloré en dégradé
- * noir → indigo → bleu → violet, avec des paillettes dorées et un halo qui déborde du
- * disque. `main` reçoit fragCoord en pixels du Canvas, pas de coordonnées normalisées.
+ * noir → indigo → bleu → violet, avec des paillettes dorées et un halo qui se fond dans
+ * le fond. `main` reçoit fragCoord en pixels du Canvas, pas de coordonnées normalisées.
  */
 private const val MARBLE_AGSL = """
 uniform float2 u_resolution;
@@ -132,8 +134,12 @@ float3 palette(float f, float2 q, float2 r) {
 
 half4 main(float2 fragCoord) {
     float2 uv = (fragCoord - 0.5 * u_resolution) / min(u_resolution.x, u_resolution.y);
-    float dist = length(uv) / 0.42;
-    float2 p = uv * 3.0;
+    // La sphère ne prend que 0.30 de la largeur, et non 0.42 : la marge restante est ce
+    // qui permet au halo de descendre à zéro avant le bord. Sans elle il était coupé net
+    // à 75 % d'opacité et l'orbe apparaissait dans un carré. p est réajusté d'autant pour
+    // que la marbrure garde la même densité sur une sphère de même taille à l'écran.
+    float dist = length(uv) / 0.30;
+    float2 p = uv * 4.2;
     float t = u_time * 0.055;
 
     float2 q = float2(fbm(p + t), fbm(p + float2(5.2, 1.3) - t * 0.8));
@@ -153,21 +159,25 @@ half4 main(float2 fragCoord) {
     float sparkle = smoothstep(0.982, 1.0, sparkleSeed) * twinkle;
     marble += sparkle * float3(1.0, 0.85, 0.55) * 1.3;
 
-    float inside = 1.0 - smoothstep(0.94, 1.0, dist);
-    float rimD = (dist - 1.0) * 14.0;
-    float rim = exp(-(rimD * rimD)) * 1.4;
+    float inside = 1.0 - smoothstep(0.92, 1.02, dist);
 
-    float auraD = max(dist - 1.0, 0.0) * 2.3;
-    float auraFall = exp(-(auraD * auraD));
+    // Un seul dégradé pour tout le pourtour, au lieu d'un anneau net doublé d'un halo :
+    // il part de la surface de la sphère et vaut déjà moins de 1 % à dist 1.6, alors que
+    // le bord de la boîte est à 1.67.
+    float haloD = max(dist - 0.92, 0.0) * 3.1;
+    float halo = exp(-haloD * haloD);
     float2 auraWarp = p * 0.55 + t * 0.35;
     float auraNoise = fbm(auraWarp);
-    float3 auraColor = mix(float3(0.20, 0.28, 0.95), float3(0.55, 0.20, 0.95), auraNoise);
-    float3 auraLayer = auraColor * auraFall * (0.55 + 0.45 * auraNoise);
+    float3 haloColor = mix(float3(0.20, 0.28, 0.95), float3(0.55, 0.20, 0.95), auraNoise);
 
-    float3 rimColor = mix(float3(0.35, 0.35, 1.0), float3(0.7, 0.35, 1.0), 0.5) * rim;
+    // Filet de sécurité : force l'alpha à zéro sur un cercle strictement intérieur à la
+    // boîte, pour qu'aucune arête ne puisse réapparaître dans les coins.
+    float edgeCut = 1.0 - smoothstep(1.38, 1.62, dist);
 
-    float3 color = marble * inside + rimColor + auraLayer * (1.0 - inside);
-    float alpha = clamp(inside + auraFall * 0.9 + rim * 0.6, 0.0, 1.0);
+    // La couleur reste « droite » (non prémultipliée) et c'est l'alpha seul qui porte la
+    // couverture : sinon le halo est atténué deux fois et le dégradé casse.
+    float3 color = mix(haloColor, marble, inside);
+    float alpha = clamp(inside + halo * 0.55 * (1.0 - inside), 0.0, 1.0) * edgeCut;
 
     return half4(color * alpha, alpha);
 }
@@ -201,20 +211,25 @@ private fun VowOrbPainted(
             )
     ) {
         val center = Offset(size.width / 2f, size.height / 2f)
-        val radius = min(size.width, size.height) / 2f * 0.62f
+        val radius = min(size.width, size.height) / 2f * 0.44f
         val angle = (elapsed * speed + phase) % 360f
         val pulse = (sin(elapsed / 380f + seed) + 1f) / 2f
         val heartbeat = (sin(elapsed / 90f + seed * 3f) + 1f) / 2f
 
+        // Halo en un seul dégradé, qui culmine à la surface de la sphère et s'éteint
+        // avant le bord de la boîte. Les disques de couleur plate d'avant avaient une
+        // arête franche, et débordaient de la boîte : elle les coupait en carré.
+        val glowRadius = radius * 2.2f
         drawCircle(
-            color = EDGE_BLUE.copy(alpha = 0.05f + pulse * 0.03f),
-            radius = radius * 2.6f,
-            center = center,
-            blendMode = BlendMode.Plus
-        )
-        drawCircle(
-            color = VIOLET_DEEP.copy(alpha = 0.10f + pulse * 0.06f),
-            radius = radius * 1.9f,
+            brush = Brush.radialGradient(
+                0.00f to Color.Transparent,
+                0.45f to VIOLET_HOT.copy(alpha = 0.28f + pulse * 0.12f),
+                0.70f to EDGE_BLUE.copy(alpha = 0.10f + pulse * 0.04f),
+                1.00f to Color.Transparent,
+                center = center,
+                radius = glowRadius
+            ),
+            radius = glowRadius,
             center = center,
             blendMode = BlendMode.Plus
         )
@@ -258,14 +273,6 @@ private fun VowOrbPainted(
                 }
             }
         }
-
-        drawCircle(
-            color = RIM_GLOW.copy(alpha = 0.35f + pulse * 0.25f),
-            radius = radius,
-            center = center,
-            style = Stroke(width = radius * 0.05f),
-            blendMode = BlendMode.Plus
-        )
     }
 }
 
@@ -319,7 +326,5 @@ private fun DrawScope.drawSpark(center: Offset, radius: Float, angleDeg: Float, 
 
 private val CORE_FLASH = Color(0xFFEDE0FF)
 private val VIOLET_HOT = Color(0xFFA537FF)
-private val VIOLET_DEEP = Color(0xFF3D0A66)
-private val RIM_GLOW = Color(0xFF9D4CFF)
 private val EDGE_BLUE = Color(0xFF3B5BFF)
 private val SPARK_COLOR = Color(0xFFE9D6FF)
