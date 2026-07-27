@@ -9,6 +9,7 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import java.text.Normalizer
 import android.widget.Toast
 import com.jesse.gardefou.data.GardeFouDatabase
 import com.jesse.gardefou.data.KeywordRepository
@@ -44,8 +45,15 @@ class GardeFouAccessibilityService : AccessibilityService() {
     // Portée coroutine du service (annulée à la déconnexion).
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    // Mots-clés bloqués gardés en mémoire, rechargés automatiquement depuis la base.
-    @Volatile private var blockedKeywords: List<String> = emptyList()
+    /**
+     * Un vœu scellé, avec sa forme normalisée précalculée. La normalisation coûte cher et la
+     * liste peut compter des dizaines de milliers d'entrées après un import : la refaire à
+     * chaque frappe serait ruineux, on la fait une fois au chargement.
+     */
+    private class Vow(val raw: String, val normalized: String, val allowPrefix: Boolean)
+
+    // Vœux scellés gardés en mémoire, rechargés automatiquement depuis la base.
+    @Volatile private var vows: List<Vow> = emptyList()
 
     // Anti-rebond : horodatage (uptime) du dernier blocage déclenché.
     @Volatile private var lastBlockAt: Long = 0L
@@ -69,7 +77,18 @@ class GardeFouAccessibilityService : AccessibilityService() {
         val repo = KeywordRepository(GardeFouDatabase.getInstance(this).blockedKeywordDao())
         scope.launch {
             repo.observeAll().collect { list ->
-                blockedKeywords = list.map { it.keyword }
+                vows = list.mapNotNull { entry ->
+                    val normalized = normalize(entry.keyword)
+                    if (normalized.isEmpty()) {
+                        null
+                    } else {
+                        // Un point trahit un domaine issu d'un import de liste hosts. La
+                        // règle de préfixe ne s'y applique pas : sur des dizaines de milliers
+                        // de domaines, taper « news » ou « mail » correspondrait au début de
+                        // centaines d'entrées et bloquerait à tort en permanence.
+                        Vow(entry.keyword, normalized, allowPrefix = !entry.keyword.contains('.'))
+                    }
+                }
             }
         }
         Log.d(TAG, "Service d'accessibilité connecté")
@@ -159,6 +178,18 @@ class GardeFouAccessibilityService : AccessibilityService() {
             }
         }
 
+        // Vues de requête connues, lues QUEL QUE SOIT leur caractère éditable. Sur l'écran
+        // de résultats de l'app Google, la requête est un simple TextView : elle ne devient
+        // un champ de saisie que si on la touche. Sans cette lecture, cliquer une suggestion
+        // de l'historique passait librement — rien n'étant tapé, aucun événement de frappe
+        // n'est émis non plus.
+        for (queryId in SEARCH_QUERY_VIEW_IDS) {
+            for (node in root.findAccessibilityNodeInfosByViewId(queryId)) {
+                val query = node.text?.toString()
+                if (!query.isNullOrEmpty()) texts.add(query)
+            }
+        }
+
         // Puis les champs de saisie : après validation d'une recherche, l'omnibox de Chrome
         // n'affiche que le domaine (« google.com »), la requête y est masquée. Et l'app
         // Google n'a pas de barre d'adresse du tout : son champ de recherche est le seul
@@ -179,19 +210,64 @@ class GardeFouAccessibilityService : AccessibilityService() {
      * explicites garde le blocage discret d'origine (retour arrière + Toast).
      */
     private fun handleSearchText(pkg: String, text: String): Boolean {
-        val vow = blockedKeywords.firstOrNull { it.isNotEmpty() && text.contains(it) }
+        val vow = matchVow(text)
         if (vow != null) {
             Log.d(TAG, "DÉTECTÉ (vœu scellé, $pkg) : « $vow » dans « $text »")
             triggerVowBlock(vow, text)
             return true
         }
-        val explicit = EXPLICIT_KEYWORDS.firstOrNull { text.contains(it) }
+        val full = normalize(text)
+        val explicit = EXPLICIT_NORMALIZED.firstOrNull { full.contains(it) }
         if (explicit != null) {
             Log.d(TAG, "DÉTECTÉ (terme explicite, $pkg) : « $explicit » dans « $text »")
             triggerBlock("« $explicit »") { performGlobalAction(GLOBAL_ACTION_BACK) }
             return true
         }
         return false
+    }
+
+    /**
+     * Cherche un vœu scellé dans un texte, en tolérant les variantes.
+     *
+     * Deux règles :
+     *  1. le texte NORMALISÉ contient le vœu normalisé. La normalisation retire accents,
+     *     casse, espaces et ponctuation : « Reddi t », « R.E.D.D.I.T » et « réddit » se
+     *     ramènent tous à « reddit ».
+     *  2. le dernier mot tapé est un DÉBUT de vœu, à partir de [MIN_PREFIX_LEN] caractères.
+     *     C'est ce qui bloque « reddi » avant même que le mot soit fini. Réservée aux vœux
+     *     saisis à la main (voir Vow.allowPrefix).
+     *
+     * La règle 2 travaille sur le dernier mot du texte brut, pas sur le texte normalisé
+     * entier : sans ça, « quoi de neuf reddi » ne serait le début d'aucun vœu.
+     */
+    private fun matchVow(text: String): String? {
+        val full = normalize(text)
+        if (full.isEmpty()) return null
+        val lastWord = normalize(text.trim().split(WHITESPACE).lastOrNull() ?: "")
+
+        for (vow in vows) {
+            if (full.contains(vow.normalized)) return vow.raw
+            if (vow.allowPrefix && lastWord.length >= MIN_PREFIX_LEN &&
+                vow.normalized.startsWith(lastWord)
+            ) {
+                return vow.raw
+            }
+        }
+        return null
+    }
+
+    /**
+     * Réduit un texte à ses lettres et chiffres, sans accents ni casse. NFD sépare la lettre
+     * de son accent, le filtre ne garde ensuite que a-z et 0-9, ce qui élimine du même coup
+     * les marques diacritiques, les espaces et la ponctuation.
+     */
+    private fun normalize(text: String): String {
+        val decomposed = Normalizer.normalize(text.lowercase(), Normalizer.Form.NFD)
+        val builder = StringBuilder(decomposed.length)
+        for (char in decomposed) {
+            if (char in 'a'..'z' || char in '0'..'9') builder.append(char)
+        }
+        return builder.toString()
     }
 
     /**
@@ -310,6 +386,12 @@ class GardeFouAccessibilityService : AccessibilityService() {
         const val MAX_NODES_SCANNED = 300
         const val MAX_FIELDS = 8
 
+        // Longueur minimale d'un début de mot pour déclencher. En dessous, « red » ou « po »
+        // feraient correspondre trop de vœux sans rapport.
+        const val MIN_PREFIX_LEN = 4
+
+        val WHITESPACE = Regex("\\s+")
+
         const val YOUTUBE_PACKAGE = "com.google.android.youtube"
 
         /**
@@ -343,6 +425,18 @@ class GardeFouAccessibilityService : AccessibilityService() {
         )
 
         /**
+         * Formes normalisées de la liste ci-dessus, calculées une fois. Pas de règle de
+         * préfixe pour cette liste : ses termes sont courts et déclencheraient trop souvent.
+         */
+        val EXPLICIT_NORMALIZED: List<String> = EXPLICIT_KEYWORDS.map { keyword ->
+            buildString {
+                for (char in keyword.lowercase()) {
+                    if (char in 'a'..'z' || char in '0'..'9') append(char)
+                }
+            }
+        }
+
+        /**
          * Resource-id de la barre d'adresse par navigateur. Sert de liste blanche des
          * navigateurs surveillés (doit rester cohérent avec `packageNames` de la config XML).
          */
@@ -358,6 +452,16 @@ class GardeFouAccessibilityService : AccessibilityService() {
             "com.opera.mini.native" to "com.opera.mini.native:id/url_field",
             "com.sec.android.app.sbrowser" to "com.sec.android.app.sbrowser:id/location_bar_edit_text",
             "com.duckduckgo.mobile.android" to "com.duckduckgo.mobile.android:id/omnibarTextInput"
+        )
+
+        /**
+         * Vues qui affichent la requête en cours SANS être des champs de saisie. On les lit
+         * par resource-id, ce qui reste ciblé : c'est la requête de l'utilisateur, pas le
+         * contenu de la page.
+         */
+        val SEARCH_QUERY_VIEW_IDS: List<String> = listOf(
+            // App Google, écran de résultats : TextView, éditable seulement une fois touché.
+            "com.google.android.googlequicksearchbox:id/googleapp_srp_search_box_text"
         )
 
         /**
