@@ -23,9 +23,10 @@ import kotlinx.coroutines.launch
  *
  * Rôle : compléter le filtrage DNS en observant l'INTÉRIEUR de certaines apps, là où le
  * DNS ne suffit pas :
- *  - Navigateurs : comparer aux mots-clés le contenu des CHAMPS DE SAISIE — barre d'adresse,
- *    mais aussi champ de recherche des pages (Google…), qui est le cas le plus courant. Seul
- *    ce que l'utilisateur saisit est lu, jamais le texte statique des pages.
+ *  - Navigateurs et app Google : comparer aux mots-clés le contenu des CHAMPS DE SAISIE —
+ *    barre d'adresse, champ de recherche d'une page, et champ de l'app Google (celle du
+ *    widget de l'écran d'accueil), qui est le cas le plus courant. Seul ce que l'utilisateur
+ *    saisit est lu, jamais le texte statique des pages.
  *  - YouTube : repérer l'ouverture du lecteur "Shorts" via des marqueurs structurels de l'UI.
  *
  * Confidentialité / périmètre :
@@ -73,7 +74,7 @@ class GardeFouAccessibilityService : AccessibilityService() {
         // (pas de parcours de l'arbre de vues), donc le plus rapide. C'est lui qui donne le
         // blocage « à la frappe », avant même la validation de la recherche.
         if (event.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) {
-            if (!BROWSER_URL_BAR_IDS.containsKey(pkg)) return
+            if (pkg !in WATCHED_SEARCH_PACKAGES) return
             checkTypedText(pkg, event)
             return
         }
@@ -82,10 +83,10 @@ class GardeFouAccessibilityService : AccessibilityService() {
             event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
         ) return
 
-        // Liste blanche défensive : on ne surveille QUE les navigateurs connus et YouTube.
+        // Liste blanche défensive : navigateurs connus, app Google, et YouTube.
         when {
             pkg == YOUTUBE_PACKAGE -> checkYouTubeShorts()
-            BROWSER_URL_BAR_IDS.containsKey(pkg) -> checkBrowserUrl(pkg)
+            pkg in WATCHED_SEARCH_PACKAGES -> checkSearchFields(pkg)
             else -> return
         }
     }
@@ -105,10 +106,10 @@ class GardeFouAccessibilityService : AccessibilityService() {
         if (source != null && !source.isEditable) return
 
         val typed = event.text.joinToString(" ").lowercase()
-        if (typed.isNotEmpty() && handleBrowserText(pkg, typed)) return
+        if (typed.isNotEmpty() && handleSearchText(pkg, typed)) return
 
         // Nœud source indisponible : on se rabat sur la lecture directe de la fenêtre.
-        if (source == null) checkBrowserUrl(pkg)
+        if (source == null) checkSearchFields(pkg)
     }
 
     /**
@@ -137,11 +138,11 @@ class GardeFouAccessibilityService : AccessibilityService() {
      * blocage « en amont », avant même la validation. Après navigation, l'omnibox affiche
      * le domaine (suffisant pour les sites explicites, dont le domaine contient le terme).
      */
-    private fun checkBrowserUrl(pkg: String) {
+    private fun checkSearchFields(pkg: String) {
         val root = rootInActiveWindow ?: return
         val texts = mutableListOf<String>()
 
-        // Barre d'adresse d'abord (chemin direct par resource-id).
+        // Barre d'adresse d'abord, quand l'app en a une (chemin direct par resource-id).
         BROWSER_URL_BAR_IDS[pkg]?.let { urlBarId ->
             for (node in root.findAccessibilityNodeInfosByViewId(urlBarId)) {
                 val url = node.text?.toString()
@@ -149,13 +150,14 @@ class GardeFouAccessibilityService : AccessibilityService() {
             }
         }
 
-        // Puis les champs de saisie des pages : après validation d'une recherche, l'omnibox
-        // de Chrome n'affiche que le domaine (« google.com »), la requête y est masquée. Le
-        // terme cherché ne subsiste que dans le champ de recherche de la page.
+        // Puis les champs de saisie : après validation d'une recherche, l'omnibox de Chrome
+        // n'affiche que le domaine (« google.com »), la requête y est masquée. Et l'app
+        // Google n'a pas de barre d'adresse du tout : son champ de recherche est le seul
+        // endroit où le terme apparaisse.
         collectEditableTexts(root, texts, intArrayOf(MAX_NODES_SCANNED))
 
         for (text in texts) {
-            if (handleBrowserText(pkg, text)) return
+            if (handleSearchText(pkg, text)) return
         }
     }
 
@@ -167,7 +169,7 @@ class GardeFouAccessibilityService : AccessibilityService() {
      * l'utilisateur a pris lui-même, il mérite l'écran d'aura. La liste intégrée de termes
      * explicites garde le blocage discret d'origine (retour arrière + Toast).
      */
-    private fun handleBrowserText(pkg: String, text: String): Boolean {
+    private fun handleSearchText(pkg: String, text: String): Boolean {
         val vow = blockedKeywords.firstOrNull { it.isNotEmpty() && text.contains(it) }
         if (vow != null) {
             Log.d(TAG, "DÉTECTÉ (vœu scellé, $pkg) : « $vow » dans « $text »")
@@ -291,6 +293,14 @@ class GardeFouAccessibilityService : AccessibilityService() {
         const val YOUTUBE_PACKAGE = "com.google.android.youtube"
 
         /**
+         * L'app Google : c'est elle qui s'ouvre depuis le widget de recherche de l'écran
+         * d'accueil, et c'est de loin la façon la plus courante de lancer une recherche.
+         * Elle n'a pas de barre d'adresse — seul son champ de saisie contient le terme,
+         * d'où la détection par `isEditable` plutôt que par resource-id.
+         */
+        const val GOOGLE_APP_PACKAGE = "com.google.android.googlequicksearchbox"
+
+        /**
          * Liste intégrée de termes explicites (contenu adulte), TOUJOURS active en plus de
          * la blocklist de l'utilisateur. Comparée par sous-chaîne au texte de la barre
          * d'adresse (donc dès la frappe). Tout en minuscules.
@@ -329,6 +339,14 @@ class GardeFouAccessibilityService : AccessibilityService() {
             "com.sec.android.app.sbrowser" to "com.sec.android.app.sbrowser:id/location_bar_edit_text",
             "com.duckduckgo.mobile.android" to "com.duckduckgo.mobile.android:id/omnibarTextInput"
         )
+
+        /**
+         * Apps dont on inspecte les champs de saisie. Doit rester cohérent avec
+         * `packageNames` de la config XML : c'est ce dernier qui décide réellement des
+         * événements que le système nous transmet, cette liste n'étant qu'un garde-fou.
+         */
+        val WATCHED_SEARCH_PACKAGES: Set<String> =
+            BROWSER_URL_BAR_IDS.keys + GOOGLE_APP_PACKAGE
 
         /**
          * Marqueurs structurels de l'UI Shorts dans l'app YouTube, confirmés par un dump

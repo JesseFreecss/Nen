@@ -6,7 +6,10 @@
       + typeViewTextChanged, qui donne le texte DÈS LA FRAPPE dans la barre d'adresse et
       permet de bloquer avant la validation de la recherche. Pas tous les événements.
     - packageNames : LISTE BLANCHE. Le système ne nous enverra d'événements QUE pour ces
-      apps (navigateurs + YouTube). Aucune autre app n'est observée.
+      apps (navigateurs, app Google, YouTube). Aucune autre app n'est observée.
+      L'app Google (googlequicksearchbox) est celle qui s'ouvre depuis le widget de
+      recherche de l'écran d'accueil : sans elle, une recherche lancée de là passait
+      entièrement sous le radar.
     - canRetrieveWindowContent + flagReportViewIds : nécessaires pour lire l'arbre de vues
       et retrouver les nœuds par resource-id (barre d'adresse, marqueurs Shorts).
     - notificationTimeout : délai anti-rebond entre deux événements. Volontairement court
@@ -19,4 +22,4 @@
     android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows"
     android:canRetrieveWindowContent="true"
     android:notificationTimeout="50"
-    android:packageNames="com.android.chrome,com.chrome.beta,com.google.android.youtube,org.mozilla.firefox,com.brave.browser,com.microsoft.emmx,com.opera.browser,com.opera.mini.native,com.sec.android.app.sbrowser,com.duckduckgo.mobile.android,com.vivaldi.browser,com.kiwibrowser.browser" />
+    android:packageNames="com.android.chrome,com.chrome.beta,com.google.android.youtube,com.google.android.googlequicksearchbox,org.mozilla.firefox,com.brave.browser,com.microsoft.emmx,com.opera.browser,com.opera.mini.native,com.sec.android.app.sbrowser,com.duckduckgo.mobile.android,com.vivaldi.browser,com.kiwibrowser.browser" />
