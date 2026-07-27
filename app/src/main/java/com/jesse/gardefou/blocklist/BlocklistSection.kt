@@ -1,8 +1,11 @@
 package com.jesse.gardefou.blocklist
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -24,6 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -64,6 +68,84 @@ fun EmptyVows(modifier: Modifier = Modifier) {
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = modifier
     )
+}
+
+/**
+ * Les vœux, scellés sous forme d'orbes. Rien n'est lisible tant qu'une orbe n'a pas été
+ * touchée et l'empreinte validée ; le vœu révélé prend alors la place de son orbe.
+ *
+ * L'affichage est plafonné à [MAX_ORBS] : après un import de liste hosts, la base peut
+ * compter des dizaines de milliers d'entrées, et autant d'orbes animées seraient
+ * ingérables à l'écran comme pour le processeur.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun SealedVows(
+    keywords: List<BlockedKeyword>,
+    revealedId: Long?,
+    onOrbClick: (BlockedKeyword) -> Unit,
+    onUnseal: (BlockedKeyword) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shown = keywords.take(MAX_ORBS)
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            shown.forEachIndexed { index, vow ->
+                if (vow.id == revealedId) {
+                    RevealedVow(item = vow, onUnseal = { onUnseal(vow) })
+                } else {
+                    VowOrb(onClick = { onOrbClick(vow) }, seed = index)
+                }
+            }
+        }
+
+        if (keywords.size > shown.size) {
+            Text(
+                text = "+ ${keywords.size - shown.size} autres vœux scellés",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+        }
+    }
+}
+
+private const val MAX_ORBS = 60
+
+/**
+ * Le vœu révélé après déverrouillage : son mot-clé, et l'action de le desceller.
+ * Reprend la place de l'orbe le temps de la révélation.
+ */
+@Composable
+fun RevealedVow(item: BlockedKeyword, onUnseal: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(start = 14.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = item.keyword,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        TextButton(onClick = onUnseal) {
+            Text(
+                text = "Desceller",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
 }
 
 /** Une ligne de la liste : le mot-clé, et l'action de le desceller. */

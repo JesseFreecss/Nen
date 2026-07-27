@@ -14,7 +14,6 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import android.widget.Toast
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -33,7 +32,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -54,6 +52,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -64,9 +63,11 @@ import com.jesse.gardefou.accessibility.GardeFouAccessibilityService
 import com.jesse.gardefou.blocklist.EmptyVows
 import com.jesse.gardefou.blocklist.KeywordViewModel
 import com.jesse.gardefou.blocklist.SealVowDialog
-import com.jesse.gardefou.blocklist.VowRow
+import com.jesse.gardefou.blocklist.SealedVows
+import com.jesse.gardefou.blocklist.VowUnlock
 import com.jesse.gardefou.blocklist.VowsFooter
 import com.jesse.gardefou.blocklist.VowsHeader
+import com.jesse.gardefou.ui.NeteroGate
 import com.jesse.gardefou.ui.theme.GardeFouTheme
 import com.jesse.gardefou.vpn.GardeFouVpnService
 import com.jesse.gardefou.vpn.ProtectionPrefs
@@ -76,17 +77,31 @@ import kotlinx.coroutines.delay
 /**
  * Point d'entrée de l'application (activité de lancement).
  */
-class MainActivity : ComponentActivity() {
+/**
+ * FragmentActivity et non ComponentActivity : BiometricPrompt l'exige pour rattacher son
+ * invite système au cycle de vie de l'écran.
+ */
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             GardeFouTheme {
-                Scaffold(
-                    modifier = Modifier.fillMaxSize(),
-                    containerColor = MaterialTheme.colorScheme.background
-                ) { innerPadding ->
-                    ProtectionScreen(modifier = Modifier.padding(innerPadding))
+                // `remember` et non `rememberSaveable` : l'état sauvegardé survit à la mort
+                // du processus, et la porte se trouvait alors sautée au retour. Elle doit
+                // s'ouvrir à chaque entrée dans l'app. Contrepartie assumée : une rotation
+                // de l'écran la fait réapparaître.
+                var entered by remember { mutableStateOf(false) }
+
+                if (!entered) {
+                    NeteroGate(onEnter = { entered = true })
+                } else {
+                    Scaffold(
+                        modifier = Modifier.fillMaxSize(),
+                        containerColor = MaterialTheme.colorScheme.background
+                    ) { innerPadding ->
+                        ProtectionScreen(modifier = Modifier.padding(innerPadding))
+                    }
                 }
             }
         }
@@ -116,6 +131,34 @@ fun ProtectionScreen(
     val lastImportCount by keywordViewModel.lastImportCount.collectAsStateWithLifecycle()
 
     var showSealDialog by remember { mutableStateOf(false) }
+
+    // Vœu actuellement révélé. Il se rescelle tout seul : la révélation est une exception,
+    // pas un état dans lequel on s'installe.
+    var revealedVowId by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(revealedVowId) {
+        if (revealedVowId != null) {
+            delay(REVEAL_DURATION_MS)
+            revealedVowId = null
+        }
+    }
+
+    // BiometricPrompt s'accroche à l'activité hôte, pas au contexte Compose.
+    val hostActivity = context as? FragmentActivity
+
+    fun requestReveal(vowId: Long) {
+        val activity = hostActivity ?: return
+        VowUnlock.prompt(
+            activity = activity,
+            onSuccess = { revealedVowId = vowId },
+            onUnavailable = { message ->
+                Toast.makeText(
+                    context,
+                    "Déverrouillage impossible : $message",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        )
+    }
 
     // Sélecteur de fichier système : renvoie l'Uri du fichier hosts choisi (ou null si annulé).
     val importLauncher = rememberLauncherForActivityResult(
@@ -298,9 +341,14 @@ fun ProtectionScreen(
         if (keywords.isEmpty()) {
             item { EmptyVows(modifier = Modifier.padding(top = 20.dp)) }
         } else {
-            items(keywords, key = { it.id }) { item ->
-                VowRow(item = item, onUnseal = { keywordViewModel.remove(item) })
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+            item {
+                SealedVows(
+                    keywords = keywords,
+                    revealedId = revealedVowId,
+                    onOrbClick = { vow -> requestReveal(vow.id) },
+                    onUnseal = { vow -> keywordViewModel.remove(vow) },
+                    modifier = Modifier.padding(top = 20.dp)
+                )
             }
         }
 
@@ -534,6 +582,9 @@ private fun requestIgnoreBatteryOptimizations(context: Context) {
         }
     }
 }
+
+/** Durée d'une révélation avant que le vœu ne se rescelle. */
+private const val REVEAL_DURATION_MS = 10_000L
 
 @Preview(showBackground = true, backgroundColor = 0xFF141414)
 @Composable

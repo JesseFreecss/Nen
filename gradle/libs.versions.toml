@@ -13,6 +13,7 @@ lifecycleViewmodelCompose = "2.8.7"  # viewModel() dans un Composable
 ksp = "2.0.21-1.0.28"            # Kotlin Symbol Processing (génération de code Room)
 room = "2.6.1"                   # Base de données locale (SQLite via Room)
 coroutines = "1.9.0"             # Programmation asynchrone (kotlinx.coroutines)
+biometric = "1.1.0"              # Déverrouillage par empreinte (BiometricPrompt)
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -36,6 +37,9 @@ androidx-room-compiler = { group = "androidx.room", name = "room-compiler", vers
 
 # Coroutines (asynchrone)
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+
+# Empreinte digitale. Tire androidx.fragment : BiometricPrompt exige une FragmentActivity.
+androidx-biometric = { group = "androidx.biometric", name = "biometric", version.ref = "biometric" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

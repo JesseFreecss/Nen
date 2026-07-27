@@ -70,6 +70,7 @@ dependencies {
 
     // Coroutines (boucle VPN asynchrone, accès DB non bloquant)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.androidx.biometric)
 
     // Outils Compose réservés au build de debug (aperçus @Preview dans Android Studio).
     debugImplementation(libs.androidx.ui.tooling)
