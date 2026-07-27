@@ -1,5 +1,8 @@
 package com.jesse.gardefou.blocklist
 
+import android.graphics.RuntimeShader
+import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -12,6 +15,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -26,15 +30,14 @@ import kotlin.math.min
 import kotlin.math.sin
 
 /**
- * Un vœu scellé, rendu illisible : un noyau noir enveloppé d'une énergie violette en
- * furie façon « Hollow Purple » — bandes de plasma à contre-rotation, flash blanc-violet
- * qui affleure au centre, étincelles qui filent vers le bord. Le contenu n'apparaît qu'après
- * déverrouillage par empreinte.
+ * Un vœu scellé, rendu illisible : une sphère marbrée noir / violet / bleu qui
+ * tourbillonne, façon nébuleuse. Le contenu n'apparaît qu'après déverrouillage par
+ * empreinte.
  *
- * Les couches lumineuses sont composées en [BlendMode.Plus] (additif) : là où deux bandes
- * se croisent, la lumière s'accumule au lieu de s'écraser en aplat, ce qui donne le halo
- * brûlant recherché sans flou GPU — indisponible sous Android 12 (minSdk 26 ici) et de
- * toute façon trop coûteux à 60 orbes animées simultanément.
+ * Le tourbillon organique (bruit fractal déformé, [MARBLE_AGSL]) demande un
+ * `RuntimeShader`, disponible seulement à partir d'Android 13 — l'app vise minSdk 26.
+ * En dessous, on retombe sur [VowOrbPainted], une version dessinée à la main qui
+ * reprend la même palette avec des primitives Canvas ordinaires.
  */
 @Composable
 fun VowOrb(
@@ -43,10 +46,146 @@ fun VowOrb(
     diameter: Dp = 56.dp,
     seed: Int = 0
 ) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        VowOrbFluid(onClick, modifier, diameter, seed)
+    } else {
+        VowOrbPainted(onClick, modifier, diameter, seed)
+    }
+}
+
+@RequiresApi(Build.VERSION_CODES.TIRAMISU)
+@Composable
+private fun VowOrbFluid(
+    onClick: () -> Unit,
+    modifier: Modifier,
+    diameter: Dp,
+    seed: Int
+) {
+    val elapsedMillis = rememberElapsedMillis()
+    // Une RuntimeShader par orbe, remember-ée une fois puis réutilisée à chaque frame :
+    // seuls les uniforms changent, pas le programme — à vérifier sur device si la
+    // grille de SealedVows tient la cadence avec plusieurs dizaines d'orbes.
+    val shader = remember { RuntimeShader(MARBLE_AGSL) }
+    val timeOffset = remember(seed) { seed * 7.3f }
+
+    Canvas(
+        modifier = modifier
+            .size(diameter)
+            .semantics { contentDescription = "Vœu scellé, toucher pour révéler" }
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            )
+    ) {
+        shader.setFloatUniform("u_resolution", size.width, size.height)
+        shader.setFloatUniform("u_time", elapsedMillis / 1000f + timeOffset)
+        drawRect(brush = ShaderBrush(shader), size = size)
+    }
+}
+
+/**
+ * Bruit fractal (fbm) déformé par son propre champ (domain warp), coloré en dégradé
+ * noir → indigo → bleu → violet, avec des paillettes dorées et un halo qui déborde du
+ * disque. `main` reçoit fragCoord en pixels du Canvas, pas de coordonnées normalisées.
+ */
+private const val MARBLE_AGSL = """
+uniform float2 u_resolution;
+uniform float u_time;
+
+float random(float2 st) {
+    return fract(sin(dot(st, float2(12.9898, 78.233))) * 43758.5453123);
+}
+
+float noise(float2 st) {
+    float2 i = floor(st);
+    float2 f = fract(st);
+    float a = random(i);
+    float b = random(i + float2(1.0, 0.0));
+    float c = random(i + float2(0.0, 1.0));
+    float d = random(i + float2(1.0, 1.0));
+    float2 u = f * f * (3.0 - 2.0 * f);
+    return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
+}
+
+float fbm(float2 st) {
+    float value = 0.0;
+    float amp = 0.5;
+    for (int i = 0; i < 6; i++) {
+        value += amp * noise(st);
+        st *= 2.02;
+        amp *= 0.5;
+    }
+    return value;
+}
+
+float3 palette(float f, float2 q, float2 r) {
+    float3 blackC = float3(0.02, 0.015, 0.03);
+    float3 indigo = float3(0.16, 0.05, 0.42);
+    float3 blueC = float3(0.09, 0.19, 0.60);
+    float3 violet = float3(0.46, 0.18, 0.86);
+    float3 col = mix(blackC, indigo, clamp(f * 1.4, 0.0, 1.0));
+    col = mix(col, blueC, clamp(length(q) * 0.9, 0.0, 1.0));
+    col = mix(col, violet, clamp(pow(max(r.x * 0.5 + 0.5, 0.0), 3.0), 0.0, 1.0));
+    return col;
+}
+
+half4 main(float2 fragCoord) {
+    float2 uv = (fragCoord - 0.5 * u_resolution) / min(u_resolution.x, u_resolution.y);
+    float dist = length(uv) / 0.42;
+    float2 p = uv * 3.0;
+    float t = u_time * 0.055;
+
+    float2 q = float2(fbm(p + t), fbm(p + float2(5.2, 1.3) - t * 0.8));
+    float2 r = float2(
+        fbm(p + 3.5 * q + float2(1.7, 9.2) + t * 1.4),
+        fbm(p + 3.5 * q + float2(8.3, 2.8) + t * 1.1)
+    );
+    float f = fbm(p + 2.5 * r);
+
+    float3 marble = palette(f, q, r);
+    float rimDarken = smoothstep(0.5, 1.0, dist);
+    marble *= mix(1.18, 0.72, rimDarken);
+
+    float2 sparseCell = floor(p * 9.0 + t * 1.5);
+    float sparkleSeed = random(sparseCell);
+    float twinkle = sin(u_time * (2.0 + sparkleSeed * 6.0) + sparkleSeed * 40.0) * 0.5 + 0.5;
+    float sparkle = smoothstep(0.982, 1.0, sparkleSeed) * twinkle;
+    marble += sparkle * float3(1.0, 0.85, 0.55) * 1.3;
+
+    float inside = 1.0 - smoothstep(0.94, 1.0, dist);
+    float rimD = (dist - 1.0) * 14.0;
+    float rim = exp(-(rimD * rimD)) * 1.4;
+
+    float auraD = max(dist - 1.0, 0.0) * 2.3;
+    float auraFall = exp(-(auraD * auraD));
+    float2 auraWarp = p * 0.55 + t * 0.35;
+    float auraNoise = fbm(auraWarp);
+    float3 auraColor = mix(float3(0.20, 0.28, 0.95), float3(0.55, 0.20, 0.95), auraNoise);
+    float3 auraLayer = auraColor * auraFall * (0.55 + 0.45 * auraNoise);
+
+    float3 rimColor = mix(float3(0.35, 0.35, 1.0), float3(0.7, 0.35, 1.0), 0.5) * rim;
+
+    float3 color = marble * inside + rimColor + auraLayer * (1.0 - inside);
+    float alpha = clamp(inside + auraFall * 0.9 + rim * 0.6, 0.0, 1.0);
+
+    return half4(color * alpha, alpha);
+}
+"""
+
+/**
+ * Repli sous Android 13 : même palette noir / violet / bleu, mais composée à partir
+ * d'arcs et de dégradés ordinaires (pas de bruit fractal, trop coûteux à recalculer en
+ * Kotlin par frame pour une grille de plusieurs dizaines d'orbes).
+ */
+@Composable
+private fun VowOrbPainted(
+    onClick: () -> Unit,
+    modifier: Modifier,
+    diameter: Dp,
+    seed: Int
+) {
     val elapsed = rememberElapsedMillis()
-    // Déphasage, vitesse et nombre d'étincelles propres à chaque orbe : sans eux, toutes
-    // brûleraient à l'unisson et la grille aurait l'air d'un motif imprimé plutôt qu'un
-    // essaim d'objets vivants.
     val phase = remember(seed) { (seed * 137) % 360 }
     val speed = remember(seed) { 0.05f + (seed % 7) * 0.010f }
     val sparkCount = remember(seed) { 5 + (seed % 3) }
@@ -67,8 +206,6 @@ fun VowOrb(
         val pulse = (sin(elapsed / 380f + seed) + 1f) / 2f
         val heartbeat = (sin(elapsed / 90f + seed * 3f) + 1f) / 2f
 
-        // Halo atmosphérique, en deux couches additives : l'énergie déborde de la
-        // sphère plutôt que de s'arrêter net à son bord.
         drawCircle(
             color = EDGE_BLUE.copy(alpha = 0.05f + pulse * 0.03f),
             radius = radius * 2.6f,
@@ -82,8 +219,6 @@ fun VowOrb(
             blendMode = BlendMode.Plus
         )
 
-        // Bandes de plasma à contre-rotation ; en additif, leurs croisements s'embrasent
-        // au lieu de se ternir.
         rotate(degrees = angle, pivot = center) {
             drawPlasmaArc(center, radius * 0.86f, sweep = 150f, width = radius * 0.34f, alpha = 0.65f)
             rotate(degrees = 180f, pivot = center) {
@@ -99,7 +234,6 @@ fun VowOrb(
             }
         }
 
-        // Flash central : la lumière blanc-violet, juste avant que le noyau ne l'avale.
         drawCircle(
             brush = Brush.radialGradient(
                 0.00f to CORE_FLASH.copy(alpha = 0.9f + heartbeat * 0.1f),
@@ -113,11 +247,8 @@ fun VowOrb(
             blendMode = BlendMode.Plus
         )
 
-        // Noyau : le point noir qui engloutit la lumière, l'œil du Hollow Purple.
         drawCircle(color = Color.Black, radius = radius * 0.30f, center = center)
 
-        // Étincelles : traits courts qui filent vers le bord, scintillent, s'éteignent —
-        // le seuil sur sparkFlicker fait qu'elles clignotent au lieu de respirer en boucle.
         rotate(degrees = angle * 0.4f, pivot = center) {
             for (i in 0 until sparkCount) {
                 val sparkAngle = i * (360f / sparkCount)
@@ -128,8 +259,6 @@ fun VowOrb(
             }
         }
 
-        // Liseré : bord vif pour détacher la sphère du fond, comme la frontière visible
-        // d'une déflagration contenue.
         drawCircle(
             color = RIM_GLOW.copy(alpha = 0.35f + pulse * 0.25f),
             radius = radius,
@@ -140,7 +269,6 @@ fun VowOrb(
     }
 }
 
-/** Une bande de plasma localement estompée à ses deux extrémités. */
 private fun DrawScope.drawPlasmaArc(
     center: Offset,
     radius: Float,
@@ -167,7 +295,6 @@ private fun DrawScope.drawPlasmaArc(
     )
 }
 
-/** Une étincelle radiale : un trait court, brillant, qui file vers l'extérieur. */
 private fun DrawScope.drawSpark(center: Offset, radius: Float, angleDeg: Float, intensity: Float) {
     val theta = Math.toRadians(angleDeg.toDouble())
     val innerR = radius * 0.95f
