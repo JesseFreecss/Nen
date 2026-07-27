@@ -5,7 +5,12 @@
     ne sert qu'au tout premier rendu (fond de fenêtre) avant que Compose ne prenne la main.
     Parent = thème plateforme sans barre d'action, pour éviter d'ajouter la dépendance
     com.google.android.material.
+
+    Variante sombre + fond aligné sur la palette Grimoire : sinon l'app flashe en blanc
+    au lancement, avant le premier rendu Compose.
 -->
 <resources>
-    <style name="Theme.GardeFou" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.GardeFou" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/grimoire_background</item>
+    </style>
 </resources>

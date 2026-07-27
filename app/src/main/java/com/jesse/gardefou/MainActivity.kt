@@ -19,26 +19,38 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -46,12 +58,19 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jesse.gardefou.accessibility.GardeFouAccessibilityService
-import com.jesse.gardefou.blocklist.BlocklistSection
+import com.jesse.gardefou.blocklist.EmptyVows
+import com.jesse.gardefou.blocklist.KeywordViewModel
+import com.jesse.gardefou.blocklist.SealVowDialog
+import com.jesse.gardefou.blocklist.VowRow
+import com.jesse.gardefou.blocklist.VowsFooter
+import com.jesse.gardefou.blocklist.VowsHeader
 import com.jesse.gardefou.ui.theme.GardeFouTheme
 import com.jesse.gardefou.vpn.GardeFouVpnService
 import com.jesse.gardefou.vpn.ProtectionPrefs
 import com.jesse.gardefou.vpn.VpnStateHolder
+import kotlinx.coroutines.delay
 
 /**
  * Point d'entrée de l'application (activité de lancement).
@@ -62,7 +81,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             GardeFouTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    containerColor = MaterialTheme.colorScheme.background
+                ) { innerPadding ->
                     ProtectionScreen(modifier = Modifier.padding(innerPadding))
                 }
             }
@@ -71,15 +93,35 @@ class MainActivity : ComponentActivity() {
 }
 
 /**
- * Écran principal : état de la protection, bouton d'activation (démarre/arrête le VPN),
- * et gestion de la liste de mots-clés bloqués.
+ * Écran principal (« Grimoire ») : état de la protection avec sa durée de série, failles à
+ * corriger, et liste des vœux scellés (mots-clés bloqués).
+ *
+ * Le vocabulaire suit la maquette docs/design/maquette-grimoire.png : la protection est le
+ * « Ten », une règle de blocage un « vœu scellé ».
  */
 @Composable
-fun ProtectionScreen(modifier: Modifier = Modifier) {
+fun ProtectionScreen(
+    modifier: Modifier = Modifier,
+    keywordViewModel: KeywordViewModel = viewModel()
+) {
     val context = LocalContext.current
 
     // État marche/arrêt du VPN, observé depuis le service via VpnStateHolder.
     val isProtected by VpnStateHolder.running.collectAsStateWithLifecycle()
+
+    // Vœux scellés + état de l'import de liste, observés depuis le ViewModel.
+    val keywords by keywordViewModel.keywords.collectAsStateWithLifecycle()
+    val importing by keywordViewModel.importing.collectAsStateWithLifecycle()
+    val lastImportCount by keywordViewModel.lastImportCount.collectAsStateWithLifecycle()
+
+    var showSealDialog by remember { mutableStateOf(false) }
+
+    // Sélecteur de fichier système : renvoie l'Uri du fichier hosts choisi (ou null si annulé).
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) keywordViewModel.importFromUri(uri)
+    }
 
     // État "service d'accessibilité activé ?". Rafraîchi à chaque retour au premier plan
     // (ON_RESUME), notamment quand l'utilisateur revient des réglages système.
@@ -88,6 +130,10 @@ fun ProtectionScreen(modifier: Modifier = Modifier) {
     // État « app exclue des optimisations de batterie ? ». Sans cette exclusion, le système
     // finit par tuer le service VPN en arrière-plan et la protection se coupe toute seule.
     var batteryExempt by remember { mutableStateOf(isIgnoringBatteryOptimizations(context)) }
+
+    // Début de la série en cours. Relu à chaque bascule : c'est le service qui l'écrit.
+    var enabledSince by remember { mutableLongStateOf(ProtectionPrefs.enabledSince(context)) }
+    LaunchedEffect(isProtected) { enabledSince = ProtectionPrefs.enabledSince(context) }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -141,7 +187,7 @@ fun ProtectionScreen(modifier: Modifier = Modifier) {
         }
     }
 
-    // Action du bouton : bascule le VPN.
+    // Action de la zone d'état : bascule le VPN.
     fun onToggleProtection() {
         if (isProtected) {
             GardeFouVpnService.stop(context)
@@ -156,106 +202,250 @@ fun ProtectionScreen(modifier: Modifier = Modifier) {
         }
     }
 
-    Column(
+    // Toute la page défile d'un seul bloc, comme la maquette. Une liste à défilement interne
+    // se retrouverait écrasée à quelques dizaines de dp dès qu'une carte « Faille » s'affiche.
+    LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Top
+            .padding(horizontal = 24.dp)
     ) {
-        Text(
-            text = "GardeFou",
-            style = MaterialTheme.typography.headlineLarge,
-            modifier = Modifier.padding(top = 24.dp)
-        )
+        item { GrimoireHeader(modifier = Modifier.padding(top = 32.dp)) }
 
-        Button(
-            onClick = { onToggleProtection() },
-            modifier = Modifier.padding(top = 24.dp)
-        ) {
-            Text(
-                text = if (isProtected) "Désactiver la protection"
-                       else "Activer la protection"
+        item {
+            TenStatus(
+                isProtected = isProtected,
+                enabledSince = enabledSince,
+                onToggle = { onToggleProtection() },
+                modifier = Modifier.padding(top = 28.dp)
             )
         }
 
-        Text(
-            text = if (isProtected) "Protection : activée"
-                   else "Protection : désactivée",
-            style = MaterialTheme.typography.bodyLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = if (isProtected) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.error,
-            modifier = Modifier.padding(top = 16.dp)
-        )
-
-        // Surveillance in-app (service d'accessibilité) : état + accès aux réglages système.
-        // Android ne permet pas d'activer ce service par programme : l'utilisateur doit le
-        // faire manuellement. On l'y guide en ouvrant directement la page Accessibilité.
-        Text(
-            text = if (a11yEnabled) "Surveillance in-app : activée"
-                   else "Surveillance in-app : désactivée",
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = if (a11yEnabled) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.error,
-            modifier = Modifier.padding(top = 24.dp)
-        )
-
+        // Failles : on n'affiche un bloc que si le réglage manque, pour ne pas encombrer.
+        // Android ne permet pas d'activer le service d'accessibilité par programme : on se
+        // contente de guider l'utilisateur vers la bonne page des réglages.
         if (!a11yEnabled) {
-            Text(
-                text = "Pour filtrer les URL dans les navigateurs et détecter les YouTube "
-                       + "Shorts, activez « Protection GardeFou » dans les réglages "
-                       + "d'accessibilité.",
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(top = 8.dp)
-            )
-            OutlinedButton(
-                onClick = {
-                    context.startActivity(
-                        Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    )
-                },
-                modifier = Modifier.padding(top = 8.dp)
-            ) {
-                Text("Ouvrir les réglages d'accessibilité")
+            item {
+                FailleCard(
+                    title = "Faille : surveillance in-app",
+                    message = "Pour filtrer les URL dans les navigateurs et détecter les "
+                        + "YouTube Shorts, activez « Protection Nen » dans les réglages "
+                        + "d'accessibilité.",
+                    actionLabel = "Ouvrir les réglages d'accessibilité",
+                    onAction = {
+                        context.startActivity(
+                            Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    },
+                    modifier = Modifier.padding(top = 24.dp)
+                )
             }
         }
 
         // Optimisations de batterie : cause n°1 des coupures spontanées de la protection.
-        // On n'affiche le bloc que si l'exclusion manque, pour ne pas encombrer l'écran.
         if (!batteryExempt) {
-            Text(
-                text = "Batterie : protection fragile",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(top = 24.dp)
-            )
-            Text(
-                text = "Sans exclusion des optimisations de batterie, le système peut "
-                       + "arrêter GardeFou en arrière-plan et la protection se coupe toute "
-                       + "seule. Sur Xiaomi, pensez aussi à autoriser le « démarrage "
-                       + "automatique » et à mettre l'économiseur de batterie sur « Aucune "
-                       + "restriction » pour cette app.",
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(top = 8.dp)
-            )
-            OutlinedButton(
-                onClick = { requestIgnoreBatteryOptimizations(context) },
-                modifier = Modifier.padding(top = 8.dp)
-            ) {
-                Text("Exclure des optimisations de batterie")
+            item {
+                FailleCard(
+                    title = "Faille : batterie",
+                    message = "Sans exclusion des optimisations de batterie, le système peut "
+                        + "arrêter Nen en arrière-plan et la protection se coupe toute "
+                        + "seule. Sur Xiaomi, pensez aussi à autoriser le « démarrage "
+                        + "automatique » et à mettre l'économiseur de batterie sur « Aucune "
+                        + "restriction » pour cette app.",
+                    actionLabel = "Exclure des optimisations de batterie",
+                    onAction = { requestIgnoreBatteryOptimizations(context) },
+                    modifier = Modifier.padding(top = 12.dp)
+                )
             }
         }
 
-        // Liste des mots-clés : prend la place restante (poids 1) pour son défilement interne.
-        BlocklistSection(
-            modifier = Modifier
-                .weight(1f)
-                .padding(top = 32.dp)
+        item { VowsHeader(count = keywords.size, modifier = Modifier.padding(top = 32.dp)) }
+
+        if (keywords.isEmpty()) {
+            item { EmptyVows(modifier = Modifier.padding(top = 20.dp)) }
+        } else {
+            items(keywords, key = { it.id }) { item ->
+                VowRow(item = item, onUnseal = { keywordViewModel.remove(item) })
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+            }
+        }
+
+        item {
+            VowsFooter(
+                importing = importing,
+                lastImportCount = lastImportCount,
+                onSeal = { showSealDialog = true },
+                onImport = { importLauncher.launch("text/*") },
+                modifier = Modifier.padding(top = 24.dp, bottom = 16.dp)
+            )
+        }
+    }
+
+    if (showSealDialog) {
+        SealVowDialog(
+            onDismiss = { showSealDialog = false },
+            onSeal = { keyword ->
+                keywordViewModel.add(keyword)
+                showSealDialog = false
+            }
         )
+    }
+}
+
+/** Sur-titre « GRIMOIRE » et titre de l'app, en haut de l'écran. */
+@Composable
+private fun GrimoireHeader(modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
+        Text(
+            text = "GRIMOIRE",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = "Nen",
+            style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.padding(top = 6.dp)
+        )
+    }
+}
+
+/**
+ * Durée de la série en cours et état du Ten. Toute la zone est cliquable : c'est le seul
+ * moyen d'activer ou de couper la protection (la maquette n'a pas de bouton dédié).
+ */
+@Composable
+private fun TenStatus(
+    isProtected: Boolean,
+    enabledSince: Long,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    // Ré-horloge toutes les minutes pour faire avancer le compteur sans quitter l'écran.
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(isProtected, enabledSince) {
+        while (isProtected && enabledSince > 0L) {
+            now = System.currentTimeMillis()
+            delay(60_000)
+        }
+    }
+
+    val segments = if (isProtected && enabledSince > 0L) {
+        streakSegments(now - enabledSince)
+    } else {
+        emptyList()
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(
+                onClickLabel = if (isProtected) "Rompre le Ten" else "Tisser le Ten",
+                onClick = onToggle
+            )
+            .padding(vertical = 8.dp)
+    ) {
+        if (segments.isEmpty()) {
+            Text(
+                text = "—",
+                style = MaterialTheme.typography.displayMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            Row(verticalAlignment = Alignment.Bottom) {
+                segments.forEach { (value, unit) ->
+                    Text(
+                        text = value,
+                        style = MaterialTheme.typography.displayMedium,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    Text(
+                        text = unit,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 3.dp, end = 12.dp, bottom = 6.dp)
+                    )
+                }
+            }
+        }
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(top = 10.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (isProtected) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+            )
+            Text(
+                text = if (isProtected) "Ten actif" else "Ten dormant",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+        }
+    }
+}
+
+/**
+ * Découpe une durée en au plus deux segments (valeur, unité), du plus significatif au moins :
+ * « 3 j 14 h », « 14 h 22 m », puis « 22 m » sous l'heure.
+ */
+private fun streakSegments(elapsedMs: Long): List<Pair<String, String>> {
+    val totalMinutes = (elapsedMs.coerceAtLeast(0L)) / 60_000
+    val days = totalMinutes / 1440
+    val hours = (totalMinutes % 1440) / 60
+    val minutes = totalMinutes % 60
+    return when {
+        days > 0 -> listOf(days.toString() to "j", hours.toString() to "h")
+        hours > 0 -> listOf(hours.toString() to "h", minutes.toString() to "m")
+        else -> listOf(minutes.toString() to "m")
+    }
+}
+
+/** Carte d'avertissement pour un réglage manquant qui fragilise la protection. */
+@Composable
+private fun FailleCard(
+    title: String,
+    message: String,
+    actionLabel: String,
+    onAction: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(modifier = Modifier.padding(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 6.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.error
+            )
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 6.dp)
+            )
+            TextButton(
+                onClick = onAction,
+                modifier = Modifier.padding(top = 4.dp)
+            ) {
+                Text(
+                    text = actionLabel,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
     }
 }
 
@@ -304,14 +494,14 @@ private fun requestIgnoreBatteryOptimizations(context: Context) {
             Toast.makeText(
                 context,
                 "Réglage introuvable : ouvrez Réglages > Batterie et retirez la restriction "
-                    + "pour GardeFou.",
+                    + "pour Nen.",
                 Toast.LENGTH_LONG
             ).show()
         }
     }
 }
 
-@Preview(showBackground = true)
+@Preview(showBackground = true, backgroundColor = 0xFF141414)
 @Composable
 fun ProtectionScreenPreview() {
     GardeFouTheme {

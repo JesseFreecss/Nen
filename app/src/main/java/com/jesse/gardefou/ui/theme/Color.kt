@@ -2,12 +2,16 @@ package com.jesse.gardefou.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Palette de couleurs de base (générée par le template Compose).
-// On y piochera pour construire les thèmes clair/sombre dans Theme.kt.
-val Purple80 = Color(0xFFD0BCFF)
-val PurpleGrey80 = Color(0xFFCCC2DC)
-val Pink80 = Color(0xFFEFB8C8)
+// Palette « Grimoire », relevée sur docs/design/maquette-grimoire.png.
+// Thème sombre uniquement : la maquette n'a pas de variante claire.
+val GrimoireBackground = Color(0xFF141414)
+val GrimoireSurface = Color(0xFF1E1E1E)
+val GrimoireDivider = Color(0xFF2E2E2E)
+val GrimoireTextPrimary = Color(0xFFF5F5F5)
+val GrimoireTextSecondary = Color(0xFF8A8A8A)
 
-val Purple40 = Color(0xFF6650a4)
-val PurpleGrey40 = Color(0xFF625b71)
-val Pink40 = Color(0xFF7D5260)
+// Vert de l'aura : le point d'état « Ten actif » et tout ce qui signale la protection en place.
+val GrimoireAura = Color(0xFF3DBE8B)
+
+// Rouge sourd pour les failles (accessibilité manquante, batterie non exclue).
+val GrimoireDanger = Color(0xFFCF6679)

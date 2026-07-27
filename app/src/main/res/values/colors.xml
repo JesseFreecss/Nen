@@ -4,4 +4,6 @@
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
     <color name="ic_launcher_background">#FF6650A4</color>
+    <!-- Doit rester synchronisé avec GrimoireBackground (ui/theme/Color.kt). -->
+    <color name="grimoire_background">#FF141414</color>
 </resources>

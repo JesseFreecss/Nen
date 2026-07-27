@@ -1,18 +1,17 @@
 package com.jesse.gardefou.blocklist
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -25,127 +24,181 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jesse.gardefou.data.BlockedKeyword
 
+// Briques d'UI de la section « Vœux scellés ». Elles sont assemblées par la LazyColumn de
+// ProtectionScreen (MainActivity) : toute la page défile d'un bloc, comme dans la maquette.
+// Une LazyColumn imbriquée dans la page ne conviendrait pas — elle se retrouverait écrasée à
+// quelques dizaines de dp dès qu'une carte « Faille » s'affiche.
+
+/** En-tête de section : intitulé et nombre de vœux scellés. */
+@Composable
+fun VowsHeader(count: Int, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = "VŒUX SCELLÉS",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = count.toString(),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+/** Message affiché quand aucun vœu n'est scellé. */
+@Composable
+fun EmptyVows(modifier: Modifier = Modifier) {
+    Text(
+        text = "Aucun vœu scellé. Scellez-en un pour bloquer les domaines correspondants.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier
+    )
+}
+
+/** Une ligne de la liste : le mot-clé, et l'action de le desceller. */
+@Composable
+fun VowRow(item: BlockedKeyword, onUnseal: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = item.keyword,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 8.dp)
+        )
+        TextButton(onClick = onUnseal) {
+            Text(
+                text = "Desceller",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
 /**
- * Section d'UI (Composable) pour gérer la liste de mots-clés bloqués :
- * champ de saisie + bouton "Ajouter", et la liste avec un bouton "Suppr." par ligne.
- *
- * Le ViewModel est fourni automatiquement par `viewModel()`.
+ * Pied de section : le bouton « Sceller un vœu » et, en dessous, l'import d'une liste au
+ * format hosts. L'import est une action rare : simple bouton texte, pour ne pas concurrencer
+ * visuellement le bouton principal.
  */
 @Composable
-fun BlocklistSection(
-    modifier: Modifier = Modifier,
-    viewModel: KeywordViewModel = viewModel()
+fun VowsFooter(
+    importing: Boolean,
+    lastImportCount: Int?,
+    onSeal: () -> Unit,
+    onImport: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    // Liste observée depuis le ViewModel (se met à jour toute seule à chaque changement).
-    val keywords by viewModel.keywords.collectAsStateWithLifecycle()
-
-    // État de l'import de liste (progression + résultat du dernier import).
-    val importing by viewModel.importing.collectAsStateWithLifecycle()
-    val lastImportCount by viewModel.lastImportCount.collectAsStateWithLifecycle()
-
-    // Sélecteur de fichier système : renvoie l'Uri du fichier hosts choisi (ou null si annulé).
-    val importLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri ->
-        if (uri != null) viewModel.importFromUri(uri)
-    }
-
-    // État local du champ de saisie.
-    var input by remember { mutableStateOf("") }
-
     Column(modifier = modifier.fillMaxWidth()) {
-        Text(
-            text = "Mots-clés bloqués",
-            style = MaterialTheme.typography.titleMedium
-        )
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        OutlinedButton(
+            onClick = onSeal,
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            modifier = Modifier.fillMaxWidth()
         ) {
-            OutlinedTextField(
-                value = input,
-                onValueChange = { input = it },
-                singleLine = true,
-                label = { Text("ex. youtube") },
-                modifier = Modifier.weight(1f)
+            Text(
+                text = "Sceller un vœu",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.padding(vertical = 6.dp)
             )
-            Button(
-                onClick = {
-                    viewModel.add(input)
-                    input = ""
-                }
-            ) {
-                Text("Ajouter")
-            }
         }
 
-        // Import en masse d'une liste au format hosts (0.0.0.0 domaine.com).
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            OutlinedButton(
-                onClick = { importLauncher.launch("text/*") },
-                enabled = !importing
-            ) {
-                Text("Importer une liste")
+            TextButton(onClick = onImport, enabled = !importing) {
+                Text(
+                    text = "Importer un grimoire",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
             if (importing) {
                 CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    strokeWidth = 2.dp
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary
                 )
                 Text(
                     text = "Import en cours…",
-                    style = MaterialTheme.typography.bodySmall
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             } else if (lastImportCount != null) {
                 Text(
-                    text = "$lastImportCount domaine(s) importé(s)",
-                    style = MaterialTheme.typography.bodySmall
+                    text = "$lastImportCount vœu(x) scellé(s)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            }
-        }
-
-        if (keywords.isEmpty()) {
-            Text(
-                text = "Aucun mot-clé. Ajoutez-en un pour bloquer les domaines correspondants.",
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(top = 12.dp)
-            )
-        } else {
-            LazyColumn(modifier = Modifier.padding(top = 8.dp)) {
-                items(keywords, key = { it.id }) { item ->
-                    KeywordRow(item = item, onDelete = { viewModel.remove(item) })
-                    HorizontalDivider()
-                }
             }
         }
     }
 }
 
+/** Boîte de dialogue d'ajout d'un mot-clé. */
 @Composable
-private fun KeywordRow(item: BlockedKeyword, onDelete: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(text = item.keyword, style = MaterialTheme.typography.bodyLarge)
-        TextButton(onClick = onDelete) { Text("Suppr.") }
-    }
+fun SealVowDialog(onDismiss: () -> Unit, onSeal: (String) -> Unit) {
+    var input by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(16.dp),
+        title = {
+            Text(
+                text = "Sceller un vœu",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        },
+        text = {
+            OutlinedTextField(
+                value = input,
+                onValueChange = { input = it },
+                singleLine = true,
+                label = { Text("ex. youtube") },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(
+                    onDone = { if (input.isNotBlank()) onSeal(input) }
+                ),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            // Pas de couleur explicite : TextButton grise lui-même le libellé quand il est
+            // désactivé (champ vide). La forcer donnerait un bouton vert d'apparence active.
+            TextButton(onClick = { onSeal(input) }, enabled = input.isNotBlank()) {
+                Text("Sceller")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Annuler", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    )
 }
