@@ -49,10 +49,19 @@ class GardeFouAccessibilityService : AccessibilityService() {
 
     // Anti-rebond : horodatage (uptime) du dernier blocage déclenché.
     @Volatile private var lastBlockAt: Long = 0L
+
+    // Texte exact qui a déclenché le dernier blocage de vœu. Sert à ne brider QUE ses
+    // événements résiduels, sans ouvrir de fenêtre de passage libre pour une autre recherche.
+    @Volatile private var lastBlockedText: String? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
     // Écran de blocage des vœux scellés (créé à la première utilisation).
     private val auraOverlay by lazy { AuraOverlay(this) }
+
+    // Blocage demandé mais overlay pas encore affiché. AuraOverlay.show() est posté sur le
+    // thread principal : sans ce drapeau posé tout de suite, deux frappes rapprochées
+    // passeraient toutes deux le test isShowing et empileraient deux écrans.
+    @Volatile private var blockPending = false
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -173,7 +182,7 @@ class GardeFouAccessibilityService : AccessibilityService() {
         val vow = blockedKeywords.firstOrNull { it.isNotEmpty() && text.contains(it) }
         if (vow != null) {
             Log.d(TAG, "DÉTECTÉ (vœu scellé, $pkg) : « $vow » dans « $text »")
-            triggerVowBlock(vow)
+            triggerVowBlock(vow, text)
             return true
         }
         val explicit = EXPLICIT_KEYWORDS.firstOrNull { text.contains(it) }
@@ -190,22 +199,32 @@ class GardeFouAccessibilityService : AccessibilityService() {
      * affiche l'écran d'aura, qui reste jusqu'à ce que l'utilisateur le touche — ce toucher
      * le renvoie à l'écran d'accueil.
      */
-    private fun triggerVowBlock(vow: String) {
-        if (auraOverlay.isShowing) return
+    private fun triggerVowBlock(vow: String, sourceText: String) {
+        if (blockPending || auraOverlay.isShowing) return
+
+        // Anti-rebond CIBLÉ : on ne bride que la répétition du même texte, c'est-à-dire les
+        // événements résiduels de la recherche qu'on vient de bloquer. Un anti-rebond global
+        // ouvrait une fenêtre de 3 s pendant laquelle une NOUVELLE recherche passait sans
+        // être bloquée — il suffisait de retaper juste après avoir congédié l'écran.
         val now = SystemClock.uptimeMillis()
-        if (now - lastBlockAt < COOLDOWN_MS) return
+        if (sourceText == lastBlockedText && now - lastBlockAt < COOLDOWN_MS) return
         lastBlockAt = now
+        lastBlockedText = sourceText
+        blockPending = true
 
         performGlobalAction(GLOBAL_ACTION_BACK)
         mainHandler.post {
             auraOverlay.show {
-                // L'anti-rebond repart du CONGÉ, pas du déclenchement : l'overlay pouvant
-                // rester affiché longtemps, les 3 s sont épuisées quand l'utilisateur le
-                // touche, et un dernier événement du navigateur rouvrirait aussitôt un
-                // nouvel écran de blocage par-dessus l'accueil.
+                // Le décompte repart du CONGÉ : l'overlay pouvant rester affiché longtemps,
+                // les 3 s seraient épuisées au toucher et un dernier événement de l'app
+                // rouvrirait aussitôt un écran de blocage par-dessus l'accueil.
                 lastBlockAt = SystemClock.uptimeMillis()
+                blockPending = false
                 performGlobalAction(GLOBAL_ACTION_HOME)
             }
+            // Affichage échoué (fenêtre refusée par le système) : sans ce relâchement, le
+            // drapeau resterait levé et plus aucun blocage ne se déclencherait.
+            if (!auraOverlay.isShowing) blockPending = false
         }
         Log.d(TAG, "BLOCAGE vœu scellé déclenché (« $vow »)")
     }
@@ -276,6 +295,7 @@ class GardeFouAccessibilityService : AccessibilityService() {
         scope.cancel()
         mainHandler.removeCallbacksAndMessages(null)
         // Filet de sécurité : ne jamais laisser l'écran de blocage derrière soi.
+        blockPending = false
         auraOverlay.hide()
     }
 

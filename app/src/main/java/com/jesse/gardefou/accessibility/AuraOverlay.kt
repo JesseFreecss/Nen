@@ -64,6 +64,16 @@ class AuraOverlay(private val context: Context) {
         }
         overlay.fitsSystemWindows = false
 
+        // Le système peut retirer la fenêtre sans passer par hide() (service reconnecté,
+        // jeton invalidé). Sans ce guet, la référence resterait non nulle et PLUS AUCUN
+        // blocage ne s'afficherait ensuite.
+        overlay.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) = Unit
+            override fun onViewDetachedFromWindow(v: View) {
+                if (view === v) view = null
+            }
+        })
+
         try {
             windowManager.addView(overlay, params)
             view = overlay
