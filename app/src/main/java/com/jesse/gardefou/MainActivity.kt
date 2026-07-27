@@ -59,6 +59,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.jesse.gardefou.accessibility.A11yHeartbeat
 import com.jesse.gardefou.accessibility.GardeFouAccessibilityService
 import com.jesse.gardefou.blocklist.EmptyVows
 import com.jesse.gardefou.blocklist.KeywordViewModel
@@ -127,6 +128,16 @@ fun ProtectionScreen(
     // (ON_RESUME), notamment quand l'utilisateur revient des réglages système.
     var a11yEnabled by remember { mutableStateOf(isAccessibilityServiceEnabled(context)) }
 
+    // Le service tourne-t-il RÉELLEMENT ? Le réglage système ci-dessus reste sur « activé »
+    // même quand HyperOS a tué le processus ; seul le battement de cœur le dit.
+    var a11yAlive by remember { mutableStateOf(A11yHeartbeat.isAlive(context)) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30_000)
+            a11yAlive = A11yHeartbeat.isAlive(context)
+        }
+    }
+
     // État « app exclue des optimisations de batterie ? ». Sans cette exclusion, le système
     // finit par tuer le service VPN en arrière-plan et la protection se coupe toute seule.
     var batteryExempt by remember { mutableStateOf(isIgnoringBatteryOptimizations(context)) }
@@ -140,6 +151,7 @@ fun ProtectionScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 a11yEnabled = isAccessibilityServiceEnabled(context)
+                a11yAlive = A11yHeartbeat.isAlive(context)
                 batteryExempt = isIgnoringBatteryOptimizations(context)
             }
         }
@@ -230,6 +242,28 @@ fun ProtectionScreen(
                     message = "Pour filtrer les URL dans les navigateurs et détecter les "
                         + "YouTube Shorts, activez « Protection Nen » dans les réglages "
                         + "d'accessibilité.",
+                    actionLabel = "Ouvrir les réglages d'accessibilité",
+                    onAction = {
+                        context.startActivity(
+                            Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    },
+                    modifier = Modifier.padding(top = 24.dp)
+                )
+            }
+        }
+
+        // Service activé au niveau système, mais qui ne bat plus : le processus a été tué.
+        // Rouvrir les réglages et basculer l'interrupteur le relance.
+        if (a11yEnabled && !a11yAlive) {
+            item {
+                FailleCard(
+                    title = "Faille : surveillance interrompue",
+                    message = "« Protection Nen » est activée dans les réglages, mais le "
+                        + "service ne répond plus : le système l'a arrêté. Rien n'est "
+                        + "surveillé pour le moment. Désactivez puis réactivez-la dans les "
+                        + "réglages d'accessibilité pour la relancer.",
                     actionLabel = "Ouvrir les réglages d'accessibilité",
                     onAction = {
                         context.startActivity(

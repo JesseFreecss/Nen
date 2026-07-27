@@ -71,6 +71,18 @@ class GardeFouAccessibilityService : AccessibilityService() {
     // passeraient toutes deux le test isShowing et empileraient deux écrans.
     @Volatile private var blockPending = false
 
+    /**
+     * Signe de vie périodique. Il ne dépend PAS des événements reçus : sans app surveillée au
+     * premier plan, aucun événement n'arrive, et l'absence de battement serait alors prise à
+     * tort pour un service mort.
+     */
+    private val heartbeat = object : Runnable {
+        override fun run() {
+            A11yHeartbeat.beat(this@GardeFouAccessibilityService)
+            mainHandler.postDelayed(this, A11yHeartbeat.BEAT_INTERVAL_MS)
+        }
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         // Observe la base : la liste se met à jour toute seule (comme dans le VpnService).
@@ -91,6 +103,9 @@ class GardeFouAccessibilityService : AccessibilityService() {
                 }
             }
         }
+        // Premier battement immédiat : sans lui, l'app signalerait une protection morte
+        // pendant la minute suivant chaque activation du service.
+        mainHandler.post(heartbeat)
         Log.d(TAG, "Service d'accessibilité connecté")
     }
 
