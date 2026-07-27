@@ -2,19 +2,21 @@
 <!--
     Configuration du service d'accessibilité GardeFou.
 
-    - accessibilityEventTypes : on n'écoute QUE les changements d'état/contenu de fenêtre
-      (assez pour savoir quand une nouvelle page/URL s'affiche), pas tous les événements.
+    - accessibilityEventTypes : changements d'état/contenu de fenêtre (nouvelle page/URL)
+      + typeViewTextChanged, qui donne le texte DÈS LA FRAPPE dans la barre d'adresse et
+      permet de bloquer avant la validation de la recherche. Pas tous les événements.
     - packageNames : LISTE BLANCHE. Le système ne nous enverra d'événements QUE pour ces
       apps (navigateurs + YouTube). Aucune autre app n'est observée.
     - canRetrieveWindowContent + flagReportViewIds : nécessaires pour lire l'arbre de vues
       et retrouver les nœuds par resource-id (barre d'adresse, marqueurs Shorts).
-    - notificationTimeout : petit délai anti-rebond entre deux événements traités.
+    - notificationTimeout : délai anti-rebond entre deux événements. Volontairement court
+      (50 ms) : à 300 ms, le mot tapé était reconnu trop tard, après le chargement de la page.
 -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/accessibility_service_description"
-    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeViewTextChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows"
     android:canRetrieveWindowContent="true"
-    android:notificationTimeout="300"
+    android:notificationTimeout="50"
     android:packageNames="com.android.chrome,com.chrome.beta,com.google.android.youtube,org.mozilla.firefox,com.brave.browser,com.microsoft.emmx,com.opera.browser,com.opera.mini.native,com.sec.android.app.sbrowser,com.duckduckgo.mobile.android,com.vivaldi.browser,com.kiwibrowser.browser" />

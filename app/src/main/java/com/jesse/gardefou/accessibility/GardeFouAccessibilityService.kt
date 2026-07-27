@@ -8,6 +8,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Toast
 import com.jesse.gardefou.data.GardeFouDatabase
 import com.jesse.gardefou.data.KeywordRepository
@@ -22,7 +23,9 @@ import kotlinx.coroutines.launch
  *
  * Rôle : compléter le filtrage DNS en observant l'INTÉRIEUR de certaines apps, là où le
  * DNS ne suffit pas :
- *  - Navigateurs : lire l'URL affichée dans la barre d'adresse et la comparer aux mots-clés.
+ *  - Navigateurs : comparer aux mots-clés le contenu des CHAMPS DE SAISIE — barre d'adresse,
+ *    mais aussi champ de recherche des pages (Google…), qui est le cas le plus courant. Seul
+ *    ce que l'utilisateur saisit est lu, jamais le texte statique des pages.
  *  - YouTube : repérer l'ouverture du lecteur "Shorts" via des marqueurs structurels de l'UI.
  *
  * Confidentialité / périmètre :
@@ -47,6 +50,9 @@ class GardeFouAccessibilityService : AccessibilityService() {
     @Volatile private var lastBlockAt: Long = 0L
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    // Écran de blocage des vœux scellés (créé à la première utilisation).
+    private val auraOverlay by lazy { AuraOverlay(this) }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         // Observe la base : la liste se met à jour toute seule (comme dans le VpnService).
@@ -61,11 +67,20 @@ class GardeFouAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         event ?: return
+        val pkg = event.packageName?.toString() ?: return
+
+        // Frappe dans un champ de texte : c'est le chemin le plus court vers le texte saisi
+        // (pas de parcours de l'arbre de vues), donc le plus rapide. C'est lui qui donne le
+        // blocage « à la frappe », avant même la validation de la recherche.
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) {
+            if (!BROWSER_URL_BAR_IDS.containsKey(pkg)) return
+            checkTypedText(pkg, event)
+            return
+        }
+
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
             event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
         ) return
-
-        val pkg = event.packageName?.toString() ?: return
 
         // Liste blanche défensive : on ne surveille QUE les navigateurs connus et YouTube.
         when {
@@ -73,6 +88,46 @@ class GardeFouAccessibilityService : AccessibilityService() {
             BROWSER_URL_BAR_IDS.containsKey(pkg) -> checkBrowserUrl(pkg)
             else -> return
         }
+    }
+
+    /**
+     * Traite une frappe dans un CHAMP DE SAISIE du navigateur.
+     *
+     * On ne se limite pas à la barre d'adresse : le champ de recherche d'une page (Google,
+     * YouTube…) est un EditText SANS resource-id, et c'est là que la recherche est le plus
+     * souvent tapée. Ne regarder que l'omnibox laissait donc passer le cas principal.
+     *
+     * Le filtre reste `isEditable` : on lit ce que l'utilisateur saisit, jamais le texte
+     * statique des pages.
+     */
+    private fun checkTypedText(pkg: String, event: AccessibilityEvent) {
+        val source = event.source
+        if (source != null && !source.isEditable) return
+
+        val typed = event.text.joinToString(" ").lowercase()
+        if (typed.isNotEmpty() && handleBrowserText(pkg, typed)) return
+
+        // Nœud source indisponible : on se rabat sur la lecture directe de la fenêtre.
+        if (source == null) checkBrowserUrl(pkg)
+    }
+
+    /**
+     * Collecte le texte des champs de saisie de la fenêtre. Bornée en nombre de nœuds visités
+     * et de champs retenus : l'événement « contenu de fenêtre modifié » est très fréquent, un
+     * parcours complet de l'arbre à chaque fois coûterait cher.
+     */
+    private fun collectEditableTexts(
+        node: AccessibilityNodeInfo?,
+        out: MutableList<String>,
+        budget: IntArray
+    ) {
+        if (node == null || budget[0] <= 0 || out.size >= MAX_FIELDS) return
+        budget[0]--
+        if (node.isEditable) {
+            val text = node.text?.toString()
+            if (!text.isNullOrEmpty()) out.add(text.lowercase())
+        }
+        for (i in 0 until node.childCount) collectEditableTexts(node.getChild(i), out, budget)
     }
 
     /**
@@ -84,30 +139,73 @@ class GardeFouAccessibilityService : AccessibilityService() {
      */
     private fun checkBrowserUrl(pkg: String) {
         val root = rootInActiveWindow ?: return
-        val urlBarId = BROWSER_URL_BAR_IDS[pkg] ?: return
-        val nodes = root.findAccessibilityNodeInfosByViewId(urlBarId)
-        for (node in nodes) {
-            val url = node.text?.toString()?.lowercase() ?: continue
-            if (url.isEmpty()) continue
-            val hit = matchBlockedTerm(url)
-            if (hit != null) {
-                Log.d(TAG, "DÉTECTÉ (navigateur $pkg) : « $hit » dans « $url »")
-                // Navigateur : on quitte la page / annule la saisie (retour arrière), tout
-                // en restant dans l'app.
-                triggerBlock("« $hit »") { performGlobalAction(GLOBAL_ACTION_BACK) }
-                return
+        val texts = mutableListOf<String>()
+
+        // Barre d'adresse d'abord (chemin direct par resource-id).
+        BROWSER_URL_BAR_IDS[pkg]?.let { urlBarId ->
+            for (node in root.findAccessibilityNodeInfosByViewId(urlBarId)) {
+                val url = node.text?.toString()
+                if (!url.isNullOrEmpty()) texts.add(url.lowercase())
             }
+        }
+
+        // Puis les champs de saisie des pages : après validation d'une recherche, l'omnibox
+        // de Chrome n'affiche que le domaine (« google.com »), la requête y est masquée. Le
+        // terme cherché ne subsiste que dans le champ de recherche de la page.
+        collectEditableTexts(root, texts, intArrayOf(MAX_NODES_SCANNED))
+
+        for (text in texts) {
+            if (handleBrowserText(pkg, text)) return
         }
     }
 
     /**
-     * Cherche un terme bloqué dans le texte donné (déjà en minuscules). Combine la blocklist
-     * de l'utilisateur (mots-clés + domaines importés) et la liste intégrée de termes
-     * explicites, toujours active. Retourne le terme correspondant, ou null.
+     * Confronte un texte d'omnibox (déjà en minuscules) aux deux listes, et déclenche le
+     * blocage correspondant. Retourne true si un blocage a été déclenché.
+     *
+     * Les deux listes n'ont pas le même traitement : un VŒU SCELLÉ est un engagement que
+     * l'utilisateur a pris lui-même, il mérite l'écran d'aura. La liste intégrée de termes
+     * explicites garde le blocage discret d'origine (retour arrière + Toast).
      */
-    private fun matchBlockedTerm(text: String): String? {
-        blockedKeywords.firstOrNull { it.isNotEmpty() && text.contains(it) }?.let { return it }
-        return EXPLICIT_KEYWORDS.firstOrNull { text.contains(it) }
+    private fun handleBrowserText(pkg: String, text: String): Boolean {
+        val vow = blockedKeywords.firstOrNull { it.isNotEmpty() && text.contains(it) }
+        if (vow != null) {
+            Log.d(TAG, "DÉTECTÉ (vœu scellé, $pkg) : « $vow » dans « $text »")
+            triggerVowBlock(vow)
+            return true
+        }
+        val explicit = EXPLICIT_KEYWORDS.firstOrNull { text.contains(it) }
+        if (explicit != null) {
+            Log.d(TAG, "DÉTECTÉ (terme explicite, $pkg) : « $explicit » dans « $text »")
+            triggerBlock("« $explicit »") { performGlobalAction(GLOBAL_ACTION_BACK) }
+            return true
+        }
+        return false
+    }
+
+    /**
+     * Blocage d'un vœu scellé : on quitte immédiatement la page (retour arrière), puis on
+     * affiche l'écran d'aura, qui reste jusqu'à ce que l'utilisateur le touche — ce toucher
+     * le renvoie à l'écran d'accueil.
+     */
+    private fun triggerVowBlock(vow: String) {
+        if (auraOverlay.isShowing) return
+        val now = SystemClock.uptimeMillis()
+        if (now - lastBlockAt < COOLDOWN_MS) return
+        lastBlockAt = now
+
+        performGlobalAction(GLOBAL_ACTION_BACK)
+        mainHandler.post {
+            auraOverlay.show {
+                // L'anti-rebond repart du CONGÉ, pas du déclenchement : l'overlay pouvant
+                // rester affiché longtemps, les 3 s sont épuisées quand l'utilisateur le
+                // touche, et un dernier événement du navigateur rouvrirait aussitôt un
+                // nouvel écran de blocage par-dessus l'accueil.
+                lastBlockAt = SystemClock.uptimeMillis()
+                performGlobalAction(GLOBAL_ACTION_HOME)
+            }
+        }
+        Log.d(TAG, "BLOCAGE vœu scellé déclenché (« $vow »)")
     }
 
     /**
@@ -145,7 +243,7 @@ class GardeFouAccessibilityService : AccessibilityService() {
 
         // Toast informatif (sur le thread principal, par sécurité).
         mainHandler.post {
-            Toast.makeText(this, "Bloqué par GardeFou : $reason", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Bloqué par Nen : $reason", Toast.LENGTH_SHORT).show()
         }
         Log.d(TAG, "BLOCAGE déclenché ($reason)")
     }
@@ -175,6 +273,8 @@ class GardeFouAccessibilityService : AccessibilityService() {
         super.onDestroy()
         scope.cancel()
         mainHandler.removeCallbacksAndMessages(null)
+        // Filet de sécurité : ne jamais laisser l'écran de blocage derrière soi.
+        auraOverlay.hide()
     }
 
     private companion object {
@@ -183,6 +283,10 @@ class GardeFouAccessibilityService : AccessibilityService() {
         // Délai minimal entre deux blocages, pour absorber la rafale d'événements d'une
         // même fenêtre (le lecteur Shorts émet ~10 événements/seconde).
         const val COOLDOWN_MS = 3_000L
+
+        // Bornes du parcours d'arbre à la recherche des champs de saisie.
+        const val MAX_NODES_SCANNED = 300
+        const val MAX_FIELDS = 8
 
         const val YOUTUBE_PACKAGE = "com.google.android.youtube"
 
