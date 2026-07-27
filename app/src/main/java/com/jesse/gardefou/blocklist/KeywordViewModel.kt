@@ -6,7 +6,7 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.jesse.gardefou.data.BlockedKeyword
-import com.jesse.gardefou.data.GardeFouDatabase
+import com.jesse.gardefou.data.NenDatabase
 import com.jesse.gardefou.data.KeywordRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,7 +26,7 @@ import kotlinx.coroutines.withContext
 class KeywordViewModel(app: Application) : AndroidViewModel(app) {
 
     private val repository = KeywordRepository(
-        GardeFouDatabase.getInstance(app).blockedKeywordDao()
+        NenDatabase.getInstance(app).blockedKeywordDao()
     )
 
     /**

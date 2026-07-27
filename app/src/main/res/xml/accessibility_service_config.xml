@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Configuration du service d'accessibilité GardeFou.
+    Configuration du service d'accessibilité Nen.
 
     - accessibilityEventTypes : changements d'état/contenu de fenêtre (nouvelle page/URL)
       + typeViewTextChanged, qui donne le texte DÈS LA FRAPPE dans la barre d'adresse et

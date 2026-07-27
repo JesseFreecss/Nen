@@ -11,7 +11,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import java.text.Normalizer
 import android.widget.Toast
-import com.jesse.gardefou.data.GardeFouDatabase
+import com.jesse.gardefou.data.NenDatabase
 import com.jesse.gardefou.data.KeywordRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -20,7 +20,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
- * Service d'accessibilité de GardeFou (étape 3).
+ * Service d'accessibilité de Nen (étape 3).
  *
  * Rôle : compléter le filtrage DNS en observant l'INTÉRIEUR de certaines apps, là où le
  * DNS ne suffit pas :
@@ -40,7 +40,7 @@ import kotlinx.coroutines.launch
  * (GLOBAL_ACTION_HOME) et on affiche un Toast, avec un anti-rebond pour ne pas répéter
  * l'action à chaque événement (le flux Shorts émet des dizaines d'événements par seconde).
  */
-class GardeFouAccessibilityService : AccessibilityService() {
+class NenAccessibilityService : AccessibilityService() {
 
     // Portée coroutine du service (annulée à la déconnexion).
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -78,7 +78,7 @@ class GardeFouAccessibilityService : AccessibilityService() {
      */
     private val heartbeat = object : Runnable {
         override fun run() {
-            A11yHeartbeat.beat(this@GardeFouAccessibilityService)
+            A11yHeartbeat.beat(this@NenAccessibilityService)
             mainHandler.postDelayed(this, A11yHeartbeat.BEAT_INTERVAL_MS)
         }
     }
@@ -86,7 +86,7 @@ class GardeFouAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         // Observe la base : la liste se met à jour toute seule (comme dans le VpnService).
-        val repo = KeywordRepository(GardeFouDatabase.getInstance(this).blockedKeywordDao())
+        val repo = KeywordRepository(NenDatabase.getInstance(this).blockedKeywordDao())
         scope.launch {
             repo.observeAll().collect { list ->
                 vows = list.mapNotNull { entry ->
@@ -391,7 +391,7 @@ class GardeFouAccessibilityService : AccessibilityService() {
     }
 
     private companion object {
-        const val TAG = "GardeFouA11y"
+        const val TAG = "NenA11y"
 
         // Délai minimal entre deux blocages, pour absorber la rafale d'événements d'une
         // même fenêtre (le lecteur Shorts émet ~10 événements/seconde).

@@ -18,14 +18,14 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     version = 2,
     exportSchema = false
 )
-abstract class GardeFouDatabase : RoomDatabase() {
+abstract class NenDatabase : RoomDatabase() {
 
     abstract fun blockedKeywordDao(): BlockedKeywordDao
 
     companion object {
         // @Volatile : garantit que tous les threads voient la même instance à jour.
         @Volatile
-        private var INSTANCE: GardeFouDatabase? = null
+        private var INSTANCE: NenDatabase? = null
 
         /**
          * Migration v1 -> v2 : crée l'index UNIQUE sur `keyword`.
@@ -50,11 +50,11 @@ abstract class GardeFouDatabase : RoomDatabase() {
          * Renvoie l'unique instance de la base (patron Singleton), en la créant au besoin.
          * Une seule connexion SQLite partagée par l'app (UI + VpnService).
          */
-        fun getInstance(context: Context): GardeFouDatabase =
+        fun getInstance(context: Context): NenDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
-                    GardeFouDatabase::class.java,
+                    NenDatabase::class.java,
                     "gardefou.db"
                 )
                     .addMigrations(MIGRATION_1_2)

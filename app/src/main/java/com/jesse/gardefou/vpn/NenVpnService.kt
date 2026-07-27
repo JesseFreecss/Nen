@@ -14,7 +14,7 @@ import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.jesse.gardefou.MainActivity
-import com.jesse.gardefou.data.GardeFouDatabase
+import com.jesse.gardefou.data.NenDatabase
 import com.jesse.gardefou.data.KeywordRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,7 +29,7 @@ import java.net.DatagramSocket
 import java.net.InetAddress
 
 /**
- * Service VPN local de GardeFou.
+ * Service VPN local de Nen.
  *
  * Principe (design "DNS sinkhole", comme DNS66/NetGuard) :
  *  - On monte une interface VPN (TUN) qui déclare un serveur DNS fictif (10.111.0.1)
@@ -42,7 +42,7 @@ import java.net.InetAddress
  *
  * Limite connue : le DNS chiffré (DNS-over-HTTPS/TLS, "DNS privé") contourne ce filtre.
  */
-class GardeFouVpnService : VpnService() {
+class NenVpnService : VpnService() {
 
     // Portée coroutine du service : annulée à l'arrêt (SupervisorJob = un échec n'arrête pas les autres).
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -100,7 +100,7 @@ class GardeFouVpnService : VpnService() {
         startAsForeground()
 
         // 2) Observe la base : la liste de mots-clés se met à jour toute seule.
-        val repo = KeywordRepository(GardeFouDatabase.getInstance(this).blockedKeywordDao())
+        val repo = KeywordRepository(NenDatabase.getInstance(this).blockedKeywordDao())
         scope.launch {
             repo.observeAll().collect { list ->
                 val domains = HashSet<String>()
@@ -329,7 +329,7 @@ class GardeFouVpnService : VpnService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Protection GardeFou",
+                "Protection Nen",
                 NotificationManager.IMPORTANCE_LOW
             ).apply { description = "Indique que la protection est active" }
             manager.createNotificationChannel(channel)
@@ -364,7 +364,7 @@ class GardeFouVpnService : VpnService() {
         ((data[pos].toInt() and 0xFF) shl 8) or (data[pos + 1].toInt() and 0xFF)
 
     companion object {
-        private const val TAG = "GardeFouVpn"
+        private const val TAG = "NenVpn"
 
         private const val VPN_ADDRESS = "10.111.0.2"   // adresse de l'interface locale
         private const val VPN_DNS = "10.111.0.1"       // DNS fictif intercepté par nous
@@ -404,7 +404,7 @@ class GardeFouVpnService : VpnService() {
          * @param delayMs délai avant d'établir le tunnel ; 0 pour un démarrage immédiat.
          */
         fun start(context: Context, delayMs: Long = 0L) {
-            val intent = Intent(context, GardeFouVpnService::class.java)
+            val intent = Intent(context, NenVpnService::class.java)
                 .setAction(ACTION_START)
                 .putExtra(EXTRA_START_DELAY_MS, delayMs)
             context.startForegroundService(intent)
@@ -412,7 +412,7 @@ class GardeFouVpnService : VpnService() {
 
         /** Demande l'arrêt du service. */
         fun stop(context: Context) {
-            val intent = Intent(context, GardeFouVpnService::class.java).setAction(ACTION_STOP)
+            val intent = Intent(context, NenVpnService::class.java).setAction(ACTION_STOP)
             context.startService(intent)
         }
     }

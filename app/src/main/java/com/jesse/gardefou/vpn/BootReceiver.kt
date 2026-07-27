@@ -33,10 +33,10 @@ class BootReceiver : BroadcastReceiver() {
         }
 
         Log.i(TAG, "Redémarrage détecté, relance de la protection")
-        GardeFouVpnService.start(context, GardeFouVpnService.BOOT_START_DELAY_MS)
+        NenVpnService.start(context, NenVpnService.BOOT_START_DELAY_MS)
     }
 
     private companion object {
-        const val TAG = "GardeFouBoot"
+        const val TAG = "NenBoot"
     }
 }

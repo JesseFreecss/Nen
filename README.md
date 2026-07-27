@@ -1,4 +1,4 @@
-# GardeFou
+# Nen
 
 Application Android personnelle de contrôle de contenu (blocage de mots-clés,
 blocage des YouTube Shorts, écran de verrouillage anti-contournement).
@@ -22,12 +22,12 @@ blocage des YouTube Shorts, écran de verrouillage anti-contournement).
 
 Cette machine n'ayant pas le SDK Android installé, le plus simple est **Android Studio** :
 
-1. Ouvrir le dossier `GardeFou` dans Android Studio (Giraffe/Koala ou plus récent).
+1. Ouvrir le dossier `Nen` dans Android Studio (Giraffe/Koala ou plus récent).
 2. Laisser Android Studio installer le SDK manquant et générer `local.properties`
    (fichier local pointant vers le SDK, non versionné).
 3. Attendre le **Gradle Sync**, puis `Build > Make Project`.
 4. Lancer sur un émulateur ou un appareil **API 26+** :
-   écran « GardeFou » + bouton « Activer la protection » + « Protection : désactivée ».
+   écran « Nen » + bouton « Activer la protection » + « Protection : désactivée ».
 
 ### En ligne de commande (une fois le SDK installé)
 

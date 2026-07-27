@@ -59,7 +59,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jesse.gardefou.accessibility.A11yHeartbeat
-import com.jesse.gardefou.accessibility.GardeFouAccessibilityService
+import com.jesse.gardefou.accessibility.NenAccessibilityService
 import com.jesse.gardefou.blocklist.EmptyVows
 import com.jesse.gardefou.blocklist.KeywordViewModel
 import com.jesse.gardefou.blocklist.SealVowDialog
@@ -68,8 +68,8 @@ import com.jesse.gardefou.blocklist.VowUnlock
 import com.jesse.gardefou.blocklist.VowsFooter
 import com.jesse.gardefou.blocklist.VowsHeader
 import com.jesse.gardefou.ui.NeteroGate
-import com.jesse.gardefou.ui.theme.GardeFouTheme
-import com.jesse.gardefou.vpn.GardeFouVpnService
+import com.jesse.gardefou.ui.theme.NenTheme
+import com.jesse.gardefou.vpn.NenVpnService
 import com.jesse.gardefou.vpn.ProtectionPrefs
 import com.jesse.gardefou.vpn.VpnStateHolder
 import kotlinx.coroutines.delay
@@ -86,7 +86,7 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            GardeFouTheme {
+            NenTheme {
                 // `remember` et non `rememberSaveable` : l'état sauvegardé survit à la mort
                 // du processus, et la porte se trouvait alors sautée au retour. Elle doit
                 // s'ouvrir à chaque entrée dans l'app. Contrepartie assumée : une rotation
@@ -202,13 +202,13 @@ fun ProtectionScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // Lanceur pour la boîte de dialogue système "Autoriser GardeFou à configurer un VPN ?".
+    // Lanceur pour la boîte de dialogue système "Autoriser Nen à configurer un VPN ?".
     // Si l'utilisateur accepte (RESULT_OK), on démarre réellement le service.
     val vpnPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            GardeFouVpnService.start(context)
+            NenVpnService.start(context)
         }
     }
 
@@ -227,7 +227,7 @@ fun ProtectionScreen(
         if (!isProtected && ProtectionPrefs.isEnabled(context) &&
             VpnService.prepare(context) == null
         ) {
-            GardeFouVpnService.start(context)
+            NenVpnService.start(context)
         }
     }
 
@@ -245,14 +245,14 @@ fun ProtectionScreen(
     // Action de la zone d'état : bascule le VPN.
     fun onToggleProtection() {
         if (isProtected) {
-            GardeFouVpnService.stop(context)
+            NenVpnService.stop(context)
         } else {
             // prepare() renvoie un Intent si l'autorisation VPN n'a pas encore été donnée.
             val prepareIntent: Intent? = VpnService.prepare(context)
             if (prepareIntent != null) {
                 vpnPermissionLauncher.launch(prepareIntent)
             } else {
-                GardeFouVpnService.start(context)
+                NenVpnService.start(context)
             }
         }
     }
@@ -532,11 +532,11 @@ private fun FailleCard(
 }
 
 /**
- * Indique si le service d'accessibilité de GardeFou est actuellement activé par l'utilisateur.
+ * Indique si le service d'accessibilité de Nen est actuellement activé par l'utilisateur.
  * On lit la liste système des services activés (Settings.Secure) et on y cherche notre composant.
  */
 private fun isAccessibilityServiceEnabled(context: Context): Boolean {
-    val expected = ComponentName(context, GardeFouAccessibilityService::class.java)
+    val expected = ComponentName(context, NenAccessibilityService::class.java)
     val enabledServices = Settings.Secure.getString(
         context.contentResolver,
         Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
@@ -557,7 +557,7 @@ private fun isIgnoringBatteryOptimizations(context: Context): Boolean {
  *
  * ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS affiche directement la boîte de dialogue
  * « Autoriser ? », mais certaines surcouches ne l'implémentent pas : on se replie alors sur
- * la liste complète des apps, où l'utilisateur choisit GardeFou à la main.
+ * la liste complète des apps, où l'utilisateur choisit Nen à la main.
  */
 private fun requestIgnoreBatteryOptimizations(context: Context) {
     val direct = Intent(
@@ -589,7 +589,7 @@ private const val REVEAL_DURATION_MS = 10_000L
 @Preview(showBackground = true, backgroundColor = 0xFF141414)
 @Composable
 fun ProtectionScreenPreview() {
-    GardeFouTheme {
+    NenTheme {
         ProtectionScreen()
     }
 }

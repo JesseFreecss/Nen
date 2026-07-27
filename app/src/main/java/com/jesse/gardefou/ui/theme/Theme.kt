@@ -27,7 +27,7 @@ private val GrimoireColorScheme = darkColorScheme(
  * et les couleurs dynamiques la remplaceraient par celles du fond d'écran de l'utilisateur.
  */
 @Composable
-fun GardeFouTheme(content: @Composable () -> Unit) {
+fun NenTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = GrimoireColorScheme,
         typography = Typography,

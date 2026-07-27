@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     Thème XML "système" de l'app, appliqué à l'application et à l'activité (manifeste).
-    En Compose, l'UI est réellement stylée par GardeFouTheme (code Kotlin) ; ce thème XML
+    En Compose, l'UI est réellement stylée par NenTheme (code Kotlin) ; ce thème XML
     ne sert qu'au tout premier rendu (fond de fenêtre) avant que Compose ne prenne la main.
     Parent = thème plateforme sans barre d'action, pour éviter d'ajouter la dépendance
     com.google.android.material.
@@ -10,7 +10,7 @@
     au lancement, avant le premier rendu Compose.
 -->
 <resources>
-    <style name="Theme.GardeFou" parent="android:Theme.Material.NoActionBar">
+    <style name="Theme.Nen" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/grimoire_background</item>
     </style>
 </resources>
