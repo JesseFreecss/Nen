@@ -1,54 +1,73 @@
 # Nen
 
-Application Android personnelle de contrôle de contenu (blocage de mots-clés,
-blocage des YouTube Shorts, écran de verrouillage anti-contournement).
+Application Android personnelle de contrôle de contenu : filtrage DNS par VPN local,
+blocage de mots-clés dans les apps via un service d'accessibilité, écran de blocage
+anti-contournement, vœux scellés et minuteur Pomodoro.
 
 > Projet solo, non destiné au Play Store pour l'instant.
 
 ## Stack technique
 
-| Élément        | Version / Choix                        |
-|----------------|----------------------------------------|
-| Langage        | Kotlin                                 |
-| UI             | Jetpack Compose (Material 3)           |
-| minSdk         | 26 (Android 8.0)                       |
-| compileSdk/target | 35 (Android 15)                     |
-| AGP            | 8.7.3                                  |
-| Kotlin         | 2.0.21                                 |
-| Gradle         | 8.9                                    |
-| Package        | `com.jesse.gardefou`                   |
+- **Kotlin** + **Jetpack Compose** (Material 3), thème sombre uniquement
+- **Room** pour la persistance des mots-clés, **coroutines** pour le VPN et la base
+- **minSdk 26** (Android 8.0), **compileSdk/targetSdk 35**, bytecode Java 17
+- Package : `com.jesse.gardefou` (l'app s'appelle « Nen », le package n'a pas été renommé)
 
-## Ouvrir et builder
+Les numéros de version (AGP, Kotlin, Gradle, dépendances) sont centralisés dans
+`gradle/libs.versions.toml` — c'est la source de vérité, pas ce README.
 
-Cette machine n'ayant pas le SDK Android installé, le plus simple est **Android Studio** :
+## Builder
 
-1. Ouvrir le dossier `Nen` dans Android Studio (Giraffe/Koala ou plus récent).
-2. Laisser Android Studio installer le SDK manquant et générer `local.properties`
-   (fichier local pointant vers le SDK, non versionné).
-3. Attendre le **Gradle Sync**, puis `Build > Make Project`.
-4. Lancer sur un émulateur ou un appareil **API 26+** :
-   écran « Nen » + bouton « Activer la protection » + « Protection : désactivée ».
+Le SDK Android est installé sur cette machine (`local.properties` pointe dessus, non versionné).
 
-### En ligne de commande (une fois le SDK installé)
+Depuis **Android Studio** : ouvrir le dossier `Nen`, attendre le Gradle Sync, `Build > Make Project`.
 
-```bash
-./gradlew build        # compile + tests
-./gradlew assembleDebug # génère l'APK debug
+En ligne de commande, `gradlew` a besoin d'un JDK 17+. Le plus simple est de réutiliser
+celui embarqué dans Android Studio :
+
+```powershell
+$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
+.\gradlew assembleDebug   # génère l'APK debug
+.\gradlew build           # compile + tests
 ```
 
-## Structure des dossiers (packages à remplir)
+### Appareil de test
+
+Le téléphone de test est un **Xiaomi sous HyperOS**, qui tue agressivement les services
+en arrière-plan. Toute modification touchant au VPN, au service d'accessibilité, au
+Pomodoro ou à l'ambiance sonore doit être vérifiée sur l'appareil réel, pas seulement
+sur émulateur : l'app peut fonctionner en apparence puis être coupée silencieusement
+après quelques heures. C'est la raison d'être de `accessibility/A11yHeartbeat.kt` et de
+la demande d'exclusion des optimisations de batterie.
+
+## Écran d'accueil
+
+Au lancement, une porte animée (`ui/NeteroGate.kt`) s'ouvre sur un champ d'orbes
+flottantes posé sur un fond animé (`ui/CosmosBackground.kt`). Chaque orbe est un objet
+manipulable à la main : les vœux scellés, la protection (Ten), le Pomodoro et l'ambiance
+sonore. Les gestes (traîner, appui long pour sceller ou supprimer) sont captés une seule
+fois pour tout le champ dans `orbs/OrbField.kt`.
+
+## Structure des dossiers
 
 ```
 com/jesse/gardefou/
-├── MainActivity.kt        # écran d'accueil Compose
-├── ui/theme/              # thème Material 3 (couleurs, typo)
-├── vpn/                   # (à venir) interception réseau / filtrage
-├── accessibility/         # (à venir) service d'accessibilité (blocage in-app)
-├── blocklist/             # (à venir) gestion des mots-clés bloqués
-├── lockscreen/            # (à venir) écran de verrouillage anti-contournement
-├── timer/                 # (à venir) minuteries / délais
-└── data/                  # (à venir) persistance (DataStore/Room)
+├── MainActivity.kt     # assemblage de l'écran : porte, fond, champ d'orbes
+├── orbs/               # moteur de simulation, rendu et gestes des orbes
+├── ui/                 # fond animé, porte d'entrée, thème Material 3
+├── blocklist/          # mots-clés bloqués : saisie, ViewModel, orbe de vœu, déverrouillage
+├── data/               # Room : entité, DAO, base, repository
+├── vpn/                # VPN local, parsing DNS, état de protection, relance au boot
+├── accessibility/      # service d'accessibilité, overlay de blocage « aura », heartbeat
+├── pomodoro/           # minuteur : service au premier plan, état, dialogue
+├── sound/              # ambiance sonore en boucle (service mediaPlayback)
+├── lockscreen/         # vide — le blocage est rendu par accessibility/AuraOverlay.kt
+└── timer/              # vide — remplacé par pomodoro/
 ```
 
-Chaque dossier « à venir » contient un `.gitkeep` pour être conservé par Git tant
-qu'il est vide.
+Les deux derniers dossiers ne contiennent qu'un `.gitkeep` hérité du découpage initial.
+
+## Git
+
+Dépôt privé `JesseFreecss/Nen`. Commits en français, à l'impératif ou au constat, sans
+préfixe conventionnel imposé. Pousser sur `origin/main` en fin de session de travail.
