@@ -4,7 +4,8 @@ import android.graphics.RuntimeShader
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
@@ -42,23 +43,26 @@ import kotlin.math.sin
 @Composable
 fun VowOrb(
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
     // La sphère n'occupe que 60 % de la boîte : le reste est la marge dans laquelle le
-    // halo s'éteint. 78.dp de boîte redonnent donc la sphère de 56.dp d'avant.
-    diameter: Dp = 78.dp,
+    // halo s'éteint.
+    diameter: Dp = 62.dp,
     seed: Int = 0
 ) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        VowOrbFluid(onClick, modifier, diameter, seed)
+        VowOrbFluid(onClick, onLongClick, modifier, diameter, seed)
     } else {
-        VowOrbPainted(onClick, modifier, diameter, seed)
+        VowOrbPainted(onClick, onLongClick, modifier, diameter, seed)
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @Composable
 private fun VowOrbFluid(
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     modifier: Modifier,
     diameter: Dp,
     seed: Int
@@ -74,9 +78,11 @@ private fun VowOrbFluid(
         modifier = modifier
             .size(diameter)
             .semantics { contentDescription = "Vœu scellé, toucher pour révéler" }
-            .clickable(
+            .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
+                onLongClickLabel = "Supprimer ce vœu",
+                onLongClick = onLongClick,
                 onClick = onClick
             )
     ) {
@@ -196,9 +202,11 @@ half4 main(float2 fragCoord) {
  * d'arcs et de dégradés ordinaires (pas de bruit fractal, trop coûteux à recalculer en
  * Kotlin par frame pour une grille de plusieurs dizaines d'orbes).
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun VowOrbPainted(
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     modifier: Modifier,
     diameter: Dp,
     seed: Int
@@ -212,9 +220,11 @@ private fun VowOrbPainted(
         modifier = modifier
             .size(diameter)
             .semantics { contentDescription = "Vœu scellé, toucher pour révéler" }
-            .clickable(
+            .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
+                onLongClickLabel = "Supprimer ce vœu",
+                onLongClick = onLongClick,
                 onClick = onClick
             )
     ) {

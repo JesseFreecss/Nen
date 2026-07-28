@@ -60,13 +60,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jesse.gardefou.accessibility.A11yHeartbeat
 import com.jesse.gardefou.accessibility.NenAccessibilityService
-import com.jesse.gardefou.blocklist.EmptyVows
 import com.jesse.gardefou.blocklist.KeywordViewModel
 import com.jesse.gardefou.blocklist.SealVowDialog
-import com.jesse.gardefou.blocklist.SealedVows
 import com.jesse.gardefou.blocklist.VowUnlock
+import com.jesse.gardefou.blocklist.VowsArea
 import com.jesse.gardefou.blocklist.VowsFooter
 import com.jesse.gardefou.blocklist.VowsHeader
+import com.jesse.gardefou.pomodoro.PomodoroDialog
+import com.jesse.gardefou.pomodoro.PomodoroSection
+import com.jesse.gardefou.pomodoro.PomodoroStateHolder
 import com.jesse.gardefou.ui.NeteroGate
 import com.jesse.gardefou.ui.theme.NenTheme
 import com.jesse.gardefou.vpn.NenVpnService
@@ -131,6 +133,10 @@ fun ProtectionScreen(
     val lastImportCount by keywordViewModel.lastImportCount.collectAsStateWithLifecycle()
 
     var showSealDialog by remember { mutableStateOf(false) }
+
+    // État du minuteur Pomodoro, tenu par son service (il continue hors de l'app).
+    val pomodoro by PomodoroStateHolder.state.collectAsStateWithLifecycle()
+    var showPomodoro by remember { mutableStateOf(false) }
 
     // Vœu actuellement révélé. Il se rescelle tout seul : la révélation est une exception,
     // pas un état dans lequel on s'installe.
@@ -336,27 +342,31 @@ fun ProtectionScreen(
             }
         }
 
+        item {
+            PomodoroSection(
+                state = pomodoro,
+                onOpen = { showPomodoro = true },
+                modifier = Modifier.padding(top = 32.dp)
+            )
+        }
+
         item { VowsHeader(count = keywords.size, modifier = Modifier.padding(top = 32.dp)) }
 
-        if (keywords.isEmpty()) {
-            item { EmptyVows(modifier = Modifier.padding(top = 20.dp)) }
-        } else {
-            item {
-                SealedVows(
-                    keywords = keywords,
-                    revealedId = revealedVowId,
-                    onOrbClick = { vow -> requestReveal(vow.id) },
-                    onUnseal = { vow -> keywordViewModel.remove(vow) },
-                    modifier = Modifier.padding(top = 20.dp)
-                )
-            }
+        item {
+            VowsArea(
+                keywords = keywords,
+                revealedId = revealedVowId,
+                onOrbClick = { vow -> requestReveal(vow.id) },
+                onUnseal = { vow -> keywordViewModel.remove(vow) },
+                onSealRequest = { showSealDialog = true },
+                modifier = Modifier.padding(top = 20.dp)
+            )
         }
 
         item {
             VowsFooter(
                 importing = importing,
                 lastImportCount = lastImportCount,
-                onSeal = { showSealDialog = true },
                 onImport = { importLauncher.launch("text/*") },
                 modifier = Modifier.padding(top = 24.dp, bottom = 16.dp)
             )
@@ -371,6 +381,10 @@ fun ProtectionScreen(
                 showSealDialog = false
             }
         )
+    }
+
+    if (showPomodoro) {
+        PomodoroDialog(state = pomodoro, onDismiss = { showPomodoro = false })
     }
 }
 

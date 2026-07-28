@@ -63,6 +63,20 @@
         </service>
 
         <!--
+            Minuteur Pomodoro. Service au premier plan pour que le décompte survive au passage
+            dans une autre application. Aucun type d'usage prédéfini d'Android 14+ ne couvre un
+            minuteur long (shortService est plafonné à quelques minutes), d'où "specialUse".
+        -->
+        <service
+            android:name=".pomodoro.PomodoroService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Minuteur Pomodoro lancé par l'utilisateur, dont le décompte doit se poursuivre en arrière-plan" />
+        </service>
+
+        <!--
             Service d'accessibilité (étape 3). La permission BIND_ACCESSIBILITY_SERVICE est
             imposée par le système : seul Android peut lier ce service. L'utilisateur doit
             l'activer manuellement dans Réglages > Accessibilité. La config (apps surveillées,
