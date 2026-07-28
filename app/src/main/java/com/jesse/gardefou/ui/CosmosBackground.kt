@@ -94,11 +94,16 @@ half4 main(float2 fragCoord) {
     float2 radial = r > 0.001 ? d / r : float2(1.0, 0.0);
 
     // Étirement des volutes. Au-delà de l'anneau, on échantillonne l'image de moins en moins
-    // loin du centre à mesure qu'on s'éloigne : le peu de matière que porte le pourtour de
-    // l'image se retrouve tiré jusqu'aux bords de l'écran, au lieu de laisser du noir. En
-    // deçà de u_ringOuter le facteur vaut exactement 1 — l'anneau et la sphère noire gardent
-    // leur taille au pixel près, et la transition est lissée pour n'imprimer aucune couture.
-    float pull = mix(1.0, 0.40, smoothstep(u_ringOuter, u_ringOuter * 2.2, r));
+    // loin du centre à mesure qu'on s'éloigne : la matière que porte le pourtour de l'image
+    // se retrouve tirée jusqu'aux bords de l'écran, au lieu de laisser du noir. En deçà de
+    // u_ringOuter le facteur vaut exactement 1 — l'anneau et la sphère noire gardent leur
+    // taille au pixel près, et la transition est lissée pour n'imprimer aucune couture.
+    //
+    // La compression est franche (0,28) et atteinte tôt : sinon les coins de l'écran
+    // échantillonnent le bord de l'image, qui est noir, et l'app s'ouvre sur un fond qui
+    // semble ne pas aller jusqu'aux bords.
+    float squeeze = smoothstep(u_ringOuter, u_ringOuter * 1.7, r);
+    float pull = mix(1.0, 0.28, squeeze);
     float sourceR = r <= u_ringOuter ? r : u_ringOuter + (r - u_ringOuter) * pull;
     float2 p = radial * sourceR;
 
@@ -129,7 +134,12 @@ half4 main(float2 fragCoord) {
 
     // Respiration lumineuse, légèrement plus marquée sur l'anneau.
     float breath = 0.93 + 0.07 * sin(u_time * 0.45) + 0.05 * band * sin(u_time * 0.9);
-    return half4(color.rgb * breath, color.a);
+
+    // La matière ramenée depuis le pourtour de l'image est la plus ténue : sans ce gain,
+    // l'étirement la diluerait encore et les bords de l'écran resteraient vides.
+    float gain = mix(1.0, 1.7, squeeze);
+
+    return half4(color.rgb * breath * gain, color.a);
 }
 """
 

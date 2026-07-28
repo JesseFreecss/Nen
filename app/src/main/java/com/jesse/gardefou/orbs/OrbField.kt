@@ -32,6 +32,7 @@ import androidx.compose.ui.input.pointer.PointerEventTimeoutCancellationExceptio
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -63,6 +64,7 @@ fun OrbField(
     modifier: Modifier = Modifier
 ) {
     val haptics = LocalHapticFeedback.current
+    val density = LocalDensity.current
     val currentTap by rememberUpdatedState(onTap)
     val currentLongOrb by rememberUpdatedState(onLongPressOrb)
     val currentLongBackground by rememberUpdatedState(onLongPressBackground)
@@ -159,11 +161,15 @@ fun OrbField(
                         )
                     }
                 ) {
+                    // Le diamètre vient du moteur, jamais d'une valeur par défaut : le dessin
+                    // et le corps physique doivent occuper exactement la même place.
+                    val diameter = with(density) { orb.boxSize.toDp() }
                     when (kind) {
-                        is OrbKind.Ten -> TenOrb(active = tenActive)
-                        is OrbKind.Pomodoro -> PomodoroOrb(active = pomodoroActive)
-                        is OrbKind.Fault -> FaultOrb()
-                        is OrbKind.Vow -> VowOrb(seed = orb.seed)
+                        is OrbKind.Ten -> TenOrb(active = tenActive, diameter = diameter)
+                        is OrbKind.Pomodoro ->
+                            PomodoroOrb(active = pomodoroActive, diameter = diameter)
+                        is OrbKind.Fault -> FaultOrb(diameter = diameter)
+                        is OrbKind.Vow -> VowOrb(diameter = diameter, seed = orb.seed)
                     }
 
                     // Le vœu révélé s'écrit sous son orbe, le temps de la révélation.

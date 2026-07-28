@@ -42,7 +42,7 @@ fun VowOrb(
     modifier: Modifier = Modifier,
     // La sphère n'occupe que 60 % de la boîte : le reste est la marge dans laquelle le
     // halo s'éteint.
-    diameter: Dp = 62.dp,
+    diameter: Dp = 31.dp,
     seed: Int = 0
 ) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

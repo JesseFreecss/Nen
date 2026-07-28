@@ -36,7 +36,7 @@ import kotlin.math.sin
 fun TenOrb(
     active: Boolean,
     modifier: Modifier = Modifier,
-    diameter: Dp = 104.dp
+    diameter: Dp = 52.dp
 ) {
     val elapsed = rememberElapsedMillis()
 
@@ -85,7 +85,7 @@ fun TenOrb(
 @Composable
 fun PomodoroOrb(
     modifier: Modifier = Modifier,
-    diameter: Dp = 62.dp,
+    diameter: Dp = 31.dp,
     active: Boolean = false
 ) {
     val elapsed = rememberElapsedMillis()
@@ -124,7 +124,7 @@ fun PomodoroOrb(
 @Composable
 fun FaultOrb(
     modifier: Modifier = Modifier,
-    diameter: Dp = 58.dp
+    diameter: Dp = 29.dp
 ) {
     val elapsed = rememberElapsedMillis()
 

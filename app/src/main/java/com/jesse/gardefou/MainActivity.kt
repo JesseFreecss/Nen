@@ -460,10 +460,10 @@ private fun spec(key: String, kind: OrbKind, box: Dp, densityScale: Float): OrbS
     return OrbSpec(key = key, kind = kind, radius = boxPx * 0.30f, boxSize = boxPx)
 }
 
-private val TEN_BOX = 104.dp
-private val POMODORO_BOX = 62.dp
-private val FAULT_BOX = 58.dp
-private val VOW_BOX = 62.dp
+private val TEN_BOX = 52.dp
+private val POMODORO_BOX = 31.dp
+private val FAULT_BOX = 29.dp
+private val VOW_BOX = 31.dp
 
 /**
  * Après un import de liste hosts, la base peut compter des dizaines de milliers d'entrées :

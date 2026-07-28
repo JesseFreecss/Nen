@@ -271,8 +271,11 @@ class OrbEngine {
     }
 
     private companion object {
-        /** Zone de préhension un peu plus large que la sphère, pour ne pas rater son geste. */
-        const val TOUCH_MARGIN = 1.5f
+        /**
+         * Zone de préhension bien plus large que la sphère : les orbes sont petites, et viser
+         * un disque de quelques millimètres au doigt serait pénible.
+         */
+        const val TOUCH_MARGIN = 2.4f
 
         /** Un lancer trop fidèle au geste enverrait l'orbe d'un bord à l'autre en un éclair. */
         const val THROW_SCALE = 0.45f
