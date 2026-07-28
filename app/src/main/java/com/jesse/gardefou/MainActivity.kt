@@ -518,10 +518,16 @@ private fun FaultDialog(
         FaultKind.BATTERY -> {
             title = "Faille : batterie"
             message = "Sans exclusion des optimisations de batterie, le système peut arrêter " +
-                "Nen en arrière-plan et la protection se coupe toute seule. Sur Xiaomi, " +
-                "pensez aussi à autoriser le « démarrage automatique » et à mettre " +
-                "l'économiseur de batterie sur « Aucune restriction » pour cette app."
-            actionLabel = "Exclure des optimisations"
+                "Nen en arrière-plan et la protection se coupe toute seule.\n\n" +
+                "Sur Xiaomi, le bouton ci-dessous n'ouvre pas la demande d'autorisation " +
+                "d'Android : HyperOS le détourne vers son propre écran « Détails de la " +
+                "batterie », qui ne peut pas accorder cette exclusion. Il n'y a alors rien à " +
+                "y faire de plus.\n\n" +
+                "Ce qui protège réellement Nen sur cet appareil : « Pas de restriction » dans " +
+                "cet écran Xiaomi, et le « démarrage automatique » autorisé. Une fois les " +
+                "deux faits, faites taire cette alerte — Android continuera de la signaler " +
+                "sans jamais pouvoir être satisfait."
+            actionLabel = "Ouvrir les réglages batterie"
         }
     }
 

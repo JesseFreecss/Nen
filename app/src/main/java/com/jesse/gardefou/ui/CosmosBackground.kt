@@ -68,11 +68,10 @@ private fun CosmosFluid(image: ImageBitmap, modifier: Modifier) {
 
         shader.setInputShader("u_image", bitmapShader)
         shader.setFloatUniform("u_center", size.width / 2f, size.height / 2f)
-        // Échelle de l'ondulation. Ce n'est pas une mesure de l'anneau : c'est le réglage qui
-        // donne son amplitude et son étalement au serpentement, mis au point à l'œil.
-        shader.setFloatUniform("u_ringRadius", bitmap.width * 0.36f * scale)
-        // Bord extérieur de l'anneau et de son halo, relevé sur le PNG. En deçà, l'image est
-        // échantillonnée telle quelle ; au-delà commence l'étirement des volutes.
+        // Rayon du fil de l'anneau et bord extérieur de son halo, relevés sur le PNG. Le
+        // premier centre l'ondulation sur le fil, le second dit où la poussière peut
+        // commencer sans empiéter sur la sphère noire.
+        shader.setFloatUniform("u_ringRadius", bitmap.width * 0.19f * scale)
         shader.setFloatUniform("u_ringOuter", bitmap.width * 0.24f * scale)
         shader.setFloatUniform("u_time", elapsed / 1000f)
 
@@ -87,31 +86,72 @@ uniform float u_ringRadius;
 uniform float u_ringOuter;
 uniform float u_time;
 
+float hash(float2 p) {
+    return fract(sin(dot(p, float2(12.9898, 78.233))) * 43758.5453123);
+}
+
+float noise(float2 p) {
+    float2 i = floor(p);
+    float2 f = fract(p);
+    float a = hash(i);
+    float b = hash(i + float2(1.0, 0.0));
+    float c = hash(i + float2(0.0, 1.0));
+    float d = hash(i + float2(1.0, 1.0));
+    float2 u = f * f * (3.0 - 2.0 * f);
+    return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
+}
+
+float fbm(float2 p) {
+    float value = 0.0;
+    float amp = 0.5;
+    for (int i = 0; i < 3; i++) {
+        value += amp * noise(p);
+        p *= 2.07;
+        amp *= 0.5;
+    }
+    return value;
+}
+
+/**
+ * Poussière d'étoile : une nébuleuse calculée, qui prolonge celle de l'image jusqu'aux bords
+ * de l'écran. Elle dérive en translation, sans déformation — l'image, elle, n'est pas touchée.
+ */
+half3 dust(float2 uv, float t) {
+    float2 q = uv * 0.0017 + float2(t * 0.0035, -t * 0.0024);
+    // Le champ se replie sur lui-même : deux ondulations lentes suffisent à casser la
+    // régularité du bruit et à donner des volutes plutôt que des taches.
+    float2 fold = float2(sin(q.y * 2.3 + t * 0.08), cos(q.x * 2.1 - t * 0.06)) * 0.36;
+    float n = fbm(q + fold);
+    float density = smoothstep(0.42, 0.92, n);
+
+    half3 cool = half3(0.07, 0.13, 0.38);
+    half3 warm = half3(0.24, 0.11, 0.44);
+    half3 cloud = mix(cool, warm, n) * density * 0.85;
+
+    // Quelques étoiles : une cellule sur cinquante environ, qui scintille.
+    float2 g = uv * 0.011;
+    float2 cell = floor(g);
+    float seed = hash(cell);
+    float2 spot = float2(hash(cell + 1.7), hash(cell + 4.3));
+    float spotDist = length(fract(g) - spot);
+    float point = 1.0 - smoothstep(0.0, 0.07, spotDist);
+    float twinkle = 0.55 + 0.45 * sin(t * 1.6 + seed * 37.0);
+    cloud += half3(0.75, 0.85, 1.0) * smoothstep(0.978, 1.0, seed) * point * twinkle;
+
+    return cloud;
+}
+
 half4 main(float2 fragCoord) {
     float2 d = fragCoord - u_center;
     float r = length(d);
     float angle = atan(d.y, d.x);
     float2 radial = r > 0.001 ? d / r : float2(1.0, 0.0);
 
-    // Étirement des volutes. Au-delà de l'anneau, on échantillonne l'image de moins en moins
-    // loin du centre à mesure qu'on s'éloigne : la matière que porte le pourtour de l'image
-    // se retrouve tirée jusqu'aux bords de l'écran, au lieu de laisser du noir. En deçà de
-    // u_ringOuter le facteur vaut exactement 1 — l'anneau et la sphère noire gardent leur
-    // taille au pixel près, et la transition est lissée pour n'imprimer aucune couture.
-    //
-    // La compression est franche (0,28) et atteinte tôt : sinon les coins de l'écran
-    // échantillonnent le bord de l'image, qui est noir, et l'app s'ouvre sur un fond qui
-    // semble ne pas aller jusqu'aux bords.
-    float squeeze = smoothstep(u_ringOuter, u_ringOuter * 1.7, r);
-    float pull = mix(1.0, 0.28, squeeze);
-    float sourceR = r <= u_ringOuter ? r : u_ringOuter + (r - u_ringOuter) * pull;
-    float2 p = radial * sourceR;
-
     // Rotation d'ensemble, très lente : la nébuleuse dérive sans qu'on voie tourner l'image.
     float spin = u_time * 0.018;
     float ca = cos(spin);
     float sa = sin(spin);
-    float2 turned = float2(p.x * ca - p.y * sa, p.x * sa + p.y * ca);
+    float2 turned = float2(d.x * ca - d.y * sa, d.x * sa + d.y * ca);
 
     // Ondulation le long de l'anneau : trois harmoniques de périodes premières entre elles,
     // qui ne se remettent donc jamais en phase — le fil ne « bat » pas la mesure.
@@ -120,10 +160,12 @@ half4 main(float2 fragCoord) {
         sin(angle * 5.0 - u_time * 0.41) * 0.30 +
         sin(angle * 8.0 + u_time * 0.87) * 0.15;
 
-    // Amplitude concentrée sur l'anneau : au-delà d'une demi-largeur d'anneau, le fond ne
-    // bouge presque plus. Sans cela l'image entière ondulerait comme un drapeau.
-    float band = exp(-pow((sourceR - u_ringRadius) / (u_ringRadius * 0.45), 2.0));
-    float amplitude = u_ringRadius * 0.035 * band;
+    // Amplitude serrée sur le fil lui-même. Étalée plus largement, elle déformait aussi les
+    // volutes autour, et tout l'espace semblait se tordre.
+    // L'amplitude est faible (2 %) : au-delà, le fil ne serpente plus, il se déforme en
+    // polygone et l'anneau perd sa rondeur.
+    float band = exp(-pow((r - u_ringRadius) / (u_ringRadius * 0.32), 2.0));
+    float amplitude = u_ringRadius * 0.022 * band;
 
     float2 tangent = float2(-radial.y, radial.x);
     float2 warped = turned
@@ -135,11 +177,14 @@ half4 main(float2 fragCoord) {
     // Respiration lumineuse, légèrement plus marquée sur l'anneau.
     float breath = 0.93 + 0.07 * sin(u_time * 0.45) + 0.05 * band * sin(u_time * 0.9);
 
-    // La matière ramenée depuis le pourtour de l'image est la plus ténue : sans ce gain,
-    // l'étirement la diluerait encore et les bords de l'écran resteraient vides.
-    float gain = mix(1.0, 1.7, squeeze);
+    // Gain multiplicatif : il éclaircit la matière sans jamais lever le noir, qui reste noir.
+    half3 rgb = color.rgb * breath * 1.30;
 
-    return half4(color.rgb * breath * gain, color.a);
+    // La poussière ne pénètre pas la sphère noire : elle commence au-delà de l'anneau.
+    float outside = smoothstep(u_ringOuter * 0.98, u_ringOuter * 1.45, r);
+    rgb += dust(fragCoord, u_time) * outside;
+
+    return half4(rgb, color.a);
 }
 """
 

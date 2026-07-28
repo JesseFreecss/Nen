@@ -50,12 +50,12 @@ fun TenOrb(
     ) {
         val center = Offset(size.width / 2f, size.height / 2f)
         val radius = min(size.width, size.height) / 2f * 0.60f
-        val intensity = if (active) 1f else 0.30f
+        val intensity = if (active) 1f else 0.42f
         val breath = (sin(elapsed / (if (active) 780f else 1600f)) + 1f) / 2f
         val spin = elapsed * (if (active) 0.030f else 0.009f)
 
-        drawBloom(center, radius, IRIS_CYAN, IRIS_VIOLET, (0.24f + breath * 0.12f) * intensity)
-        drawCore(center, radius, IRIS_BLUE, 0.10f * intensity)
+        drawBloom(center, radius, IRIS_CYAN, IRIS_VIOLET, (0.32f + breath * 0.16f) * intensity)
+        drawCore(center, radius, IRIS_BLUE, 0.14f * intensity)
 
         // Boucles presque circulaires et de rayons voisins : elles se recouvrent en une seule
         // écharpe de lumière aux franges colorées, comme l'anneau du fond. Des ellipses
@@ -63,17 +63,17 @@ fun TenOrb(
         drawLoop(
             center, radius * 0.96f, flatten = 0.99f, rotation = spin,
             width = radius * 0.075f, hot = Color.White, cool = IRIS_CYAN,
-            alpha = (0.90f + breath * 0.10f) * intensity
+            alpha = (0.96f + breath * 0.04f) * intensity
         )
         drawLoop(
             center, radius * 0.92f, flatten = 0.94f, rotation = -spin * 1.37f + 42f,
             width = radius * 0.055f, hot = IRIS_MINT, cool = IRIS_VIOLET,
-            alpha = 0.70f * intensity
+            alpha = 0.86f * intensity
         )
         drawLoop(
             center, radius * 0.89f, flatten = 0.90f, rotation = spin * 0.71f + 112f,
             width = radius * 0.045f, hot = IRIS_ROSE, cool = IRIS_BLUE,
-            alpha = 0.52f * intensity
+            alpha = 0.66f * intensity
         )
     }
 }
@@ -100,18 +100,18 @@ fun PomodoroOrb(
         val breath = (sin(elapsed / (if (active) 700f else 1500f)) + 1f) / 2f
         val spin = elapsed * (if (active) 0.048f else 0.016f)
 
-        drawBloom(center, radius, WHITE_WARM, WHITE_COOL, 0.30f + breath * 0.16f)
-        drawCore(center, radius, WHITE_WARM, 0.34f + breath * 0.12f)
+        drawBloom(center, radius, WHITE_WARM, WHITE_COOL, 0.38f + breath * 0.18f)
+        drawCore(center, radius, WHITE_WARM, 0.44f + breath * 0.14f)
 
         drawLoop(
             center, radius * 0.96f, flatten = 0.98f, rotation = spin,
             width = radius * 0.070f, hot = Color.White, cool = WHITE_COOL,
-            alpha = 0.92f
+            alpha = 0.98f
         )
         drawLoop(
             center, radius * 0.91f, flatten = 0.92f, rotation = -spin * 1.42f + 64f,
             width = radius * 0.048f, hot = Color.White, cool = WHITE_WARM,
-            alpha = 0.60f
+            alpha = 0.76f
         )
     }
 }
@@ -139,24 +139,24 @@ fun SoundOrb(
     ) {
         val center = Offset(size.width / 2f, size.height / 2f)
         val radius = min(size.width, size.height) / 2f * 0.60f
-        val intensity = if (playing) 1f else 0.42f
+        val intensity = if (playing) 1f else 0.54f
         val wave = (sin(elapsed / (if (playing) 520f else 1400f)) + 1f) / 2f
         val spin = elapsed * (if (playing) 0.040f else 0.012f)
 
-        drawBloom(center, radius, AMBER_HOT, AMBER_DEEP, (0.26f + wave * 0.18f) * intensity)
-        drawCore(center, radius, AMBER, 0.12f * intensity)
+        drawBloom(center, radius, AMBER_HOT, AMBER_DEEP, (0.34f + wave * 0.20f) * intensity)
+        drawCore(center, radius, AMBER, 0.16f * intensity)
 
         // Les deux boucles s'écartent en opposition de phase : l'orbe semble pulser au son.
         drawLoop(
             center, radius * (0.92f + wave * 0.07f), flatten = 0.98f, rotation = spin,
             width = radius * 0.075f, hot = AMBER_HOT, cool = AMBER,
-            alpha = (0.88f + wave * 0.12f) * intensity
+            alpha = (0.94f + wave * 0.06f) * intensity
         )
         drawLoop(
             center, radius * (0.94f - wave * 0.07f), flatten = 0.93f,
             rotation = -spin * 1.4f + 52f,
             width = radius * 0.05f, hot = AMBER, cool = AMBER_DEEP,
-            alpha = 0.62f * intensity
+            alpha = 0.76f * intensity
         )
     }
 }
@@ -185,18 +185,18 @@ fun FaultOrb(
         val beat = pulse * pulse
         val spin = elapsed * 0.022f
 
-        drawBloom(center, radius, DANGER_HOT, DANGER_DEEP, 0.26f + beat * 0.22f)
-        drawCore(center, radius, DANGER, 0.14f + beat * 0.10f)
+        drawBloom(center, radius, DANGER_HOT, DANGER_DEEP, 0.34f + beat * 0.24f)
+        drawCore(center, radius, DANGER, 0.18f + beat * 0.12f)
 
         drawLoop(
             center, radius * 0.96f, flatten = 0.98f, rotation = spin,
             width = radius * 0.080f, hot = DANGER_HOT, cool = DANGER,
-            alpha = 0.78f + beat * 0.22f
+            alpha = 0.86f + beat * 0.14f
         )
         drawLoop(
             center, radius * 0.90f, flatten = 0.93f, rotation = -spin * 1.5f + 38f,
             width = radius * 0.05f, hot = DANGER, cool = DANGER_DEEP,
-            alpha = 0.48f + beat * 0.16f
+            alpha = 0.62f + beat * 0.18f
         )
     }
 }
