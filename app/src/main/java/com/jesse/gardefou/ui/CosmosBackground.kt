@@ -117,22 +117,39 @@ float fbm(float2 p) {
  * de l'écran. Elle dérive en translation, sans déformation — l'image, elle, n'est pas touchée.
  */
 half3 dust(float2 uv, float t) {
-    float2 q = uv * 0.0017 + float2(t * 0.0035, -t * 0.0024);
+    float2 q = uv * 0.0034 + float2(t * 0.0060, -t * 0.0042);
     // Le champ se replie sur lui-même : deux ondulations lentes suffisent à casser la
     // régularité du bruit et à donner des volutes plutôt que des taches.
     float2 fold = float2(sin(q.y * 2.3 + t * 0.08), cos(q.x * 2.1 - t * 0.06)) * 0.36;
     float n = fbm(q + fold);
-    // Deux échelles superposées, et des seuils bas : la grande porte des voiles larges, la
-    // petite des filaments. Avec un seul seuil élevé, la poussière ne se montrait que dans
-    // les plus fortes concentrations de bruit et laissait des pans d'écran vides.
-    float n2 = fbm(q * 0.62 + float2(11.3, 4.7) - fold * 0.6);
-    float density = 0.14
-        + smoothstep(0.28, 0.86, n) * 0.68
-        + smoothstep(0.32, 0.90, n2) * 0.48;
 
-    half3 cool = half3(0.07, 0.13, 0.38);
-    half3 warm = half3(0.24, 0.11, 0.44);
-    half3 cloud = mix(cool, warm, n) * density * 1.05;
+    // On suit les CRÊTES du bruit, et non son niveau : seuiller le niveau teintait tout le
+    // champ, ne serait-ce que faiblement, et ce voile continu noyait les filaments.
+    //
+    // La retombée est une puissance élevée, pas un seuil : un seuil donnait des traits de
+    // largeur constante et de bord net, qui se lisaient comme des vermicelles. Une puissance
+    // laisse un cœur brillant qui s'éteint progressivement de part et d'autre, et atteint le
+    // noir franc à quelques pixels — c'est ce dégradé qui fait la nébulosité.
+    float ridge = 1.0 - abs(n * 2.0 - 1.0);
+    float filament = pow(ridge, 46.0);
+    // Duvet : la même crête avec une puissance bien plus faible, donc une bande large, mais à
+    // une intensité dérisoire. Elle ne se voit que serrée contre le fil, où elle lui ôte son
+    // trait net ; à quelques pixels de là elle est déjà retombée à zéro.
+    float down = pow(ridge, 9.0);
+
+    // Seconde nappe, deux fois plus large et décalée : les filaments se croisent au lieu de
+    // courir tous dans le même sens.
+    float n2 = fbm(q * 0.5 + float2(11.3, 4.7) - fold * 0.6);
+    float veil = pow(1.0 - abs(n2 * 2.0 - 1.0), 22.0);
+
+    // Répartition en bancs : sans elle, les filaments couvrent l'écran d'un maillage régulier
+    // qui trahit le procédé. Ils se regroupent, et laissent ailleurs de vastes plages vides.
+    float patches = smoothstep(0.34, 0.78, fbm(q * 0.21 + float2(3.7, 8.1)));
+
+    half3 cool = half3(0.30, 0.50, 1.00);
+    half3 warm = half3(0.55, 0.34, 1.00);
+    half3 cloud = mix(cool, warm, n) *
+        (filament * 0.50 + down * 0.10 + veil * 0.26) * (0.18 + 0.82 * patches);
 
     // Quelques étoiles : une cellule sur cinquante environ, qui scintille.
     float2 g = uv * 0.011;
