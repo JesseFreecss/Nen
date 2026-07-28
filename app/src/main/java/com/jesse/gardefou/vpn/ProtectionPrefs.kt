@@ -13,6 +13,7 @@ object ProtectionPrefs {
     private const val FILE = "gardefou_prefs"
     private const val KEY_ENABLED = "protection_enabled"
     private const val KEY_ENABLED_SINCE = "protection_enabled_since"
+    private const val KEY_BATTERY_MUTED = "battery_warning_muted"
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -42,4 +43,19 @@ object ProtectionPrefs {
      */
     fun enabledSince(context: Context): Long =
         prefs(context).getLong(KEY_ENABLED_SINCE, 0L)
+
+    /**
+     * L'utilisateur a demandé qu'on cesse de signaler la faille « batterie ».
+     *
+     * Nécessaire parce que la demande système d'exclusion reste sans effet sur certaines
+     * surcouches (HyperOS notamment) : l'app n'entre jamais dans la liste blanche, et l'orbe
+     * rouge resterait à l'écran quoi que fasse l'utilisateur. On ne masque que l'alerte, pas
+     * le problème — le système peut toujours arrêter Nen en arrière-plan.
+     */
+    fun setBatteryWarningMuted(context: Context, muted: Boolean) {
+        prefs(context).edit().putBoolean(KEY_BATTERY_MUTED, muted).apply()
+    }
+
+    fun isBatteryWarningMuted(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_BATTERY_MUTED, false)
 }

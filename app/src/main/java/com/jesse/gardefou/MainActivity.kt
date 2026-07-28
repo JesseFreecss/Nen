@@ -20,6 +20,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
@@ -168,6 +169,7 @@ fun NenScreen(keywordViewModel: KeywordViewModel = viewModel()) {
     // Sans exclusion des optimisations de batterie, le système finit par tuer le service VPN
     // en arrière-plan et la protection se coupe toute seule.
     var batteryExempt by remember { mutableStateOf(isIgnoringBatteryOptimizations(context)) }
+    var batteryMuted by remember { mutableStateOf(ProtectionPrefs.isBatteryWarningMuted(context)) }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -236,7 +238,7 @@ fun NenScreen(keywordViewModel: KeywordViewModel = viewModel()) {
     val faults = buildList {
         if (!a11yEnabled) add(FaultKind.ACCESSIBILITY_OFF)
         if (a11yEnabled && !a11yAlive) add(FaultKind.ACCESSIBILITY_DEAD)
-        if (!batteryExempt) add(FaultKind.BATTERY)
+        if (!batteryExempt && !batteryMuted) add(FaultKind.BATTERY)
     }
 
     val engine = remember { OrbEngine() }
@@ -332,6 +334,15 @@ fun NenScreen(keywordViewModel: KeywordViewModel = viewModel()) {
         FaultDialog(
             fault = fault,
             onDismiss = { shownFault = null },
+            onMute = if (fault == FaultKind.BATTERY) {
+                {
+                    ProtectionPrefs.setBatteryWarningMuted(context, true)
+                    batteryMuted = true
+                    shownFault = null
+                }
+            } else {
+                null
+            },
             onAction = {
                 shownFault = null
                 when (fault) {
@@ -358,9 +369,20 @@ private fun MenuAnchor(position: Offset, content: @Composable () -> Unit) {
     }
 }
 
-/** Ce qui manque, pourquoi c'est un problème, et le réglage qui le corrige. */
+/**
+ * Ce qui manque, pourquoi c'est un problème, et le réglage qui le corrige.
+ *
+ * [onMute], quand il est fourni, permet de faire taire l'alerte définitivement : la demande
+ * système d'exclusion de batterie reste sans effet sur certaines surcouches, et sans cette
+ * porte de sortie l'orbe rouge resterait à l'écran quoi que fasse l'utilisateur.
+ */
 @Composable
-private fun FaultDialog(fault: FaultKind, onDismiss: () -> Unit, onAction: () -> Unit) {
+private fun FaultDialog(
+    fault: FaultKind,
+    onDismiss: () -> Unit,
+    onAction: () -> Unit,
+    onMute: (() -> Unit)? = null
+) {
     val title: String
     val message: String
     val actionLabel: String
@@ -400,11 +422,22 @@ private fun FaultDialog(fault: FaultKind, onDismiss: () -> Unit, onAction: () ->
             )
         },
         text = {
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Column {
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (onMute != null) {
+                    TextButton(onClick = onMute) {
+                        Text(
+                            text = "Ne plus signaler",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
         },
         confirmButton = {
             TextButton(onClick = onAction) { Text(actionLabel) }

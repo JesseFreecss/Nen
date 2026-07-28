@@ -144,14 +144,19 @@ half4 main(float2 fragCoord) {
 
     float3 marble = palette(f, q, r);
     float rimDarken = smoothstep(0.5, 1.0, dist);
-    marble *= mix(1.10, 0.62, rimDarken);
+    // Intérieur assombri : comme les autres orbes, celle-ci doit laisser deviner le fond au
+    // lieu de le masquer. Toute sa lumière est dans son fil.
+    marble *= mix(0.80, 0.42, rimDarken);
 
-    // Liseré nacré : la même écharpe de lumière qui court sur l'anneau du fond, ramenée à
-    // l'échelle de la sphère. C'est lui qui empêche l'orbe de se lire comme un disque plat.
-    float rim = smoothstep(0.62, 0.98, dist);
+    // Le filament : une bande étroite au bord, pas un dégradé large. C'est le même fil de
+    // lumière que celui de l'anneau du fond, ramené à l'échelle de la sphère — et c'est lui
+    // qui empêche l'orbe de se lire comme un disque plat.
+    float filament = exp(-pow((dist - 0.93) / 0.085, 2.0));
     float iridescence = sin(u_time * 0.35 + f * 7.0 + q.x * 3.0) * 0.5 + 0.5;
     float3 rimColor = mix(float3(0.52, 0.95, 0.88), float3(0.72, 0.60, 1.00), iridescence);
-    marble += rim * rimColor * 0.30;
+    // Points chauds qui courent le long du fil, comme dans les boucles du fond.
+    float travel = sin(atan(uv.y, uv.x) * 2.0 - u_time * 0.55) * 0.5 + 0.5;
+    marble += filament * rimColor * (0.34 + travel * 0.42);
 
     // Paillettes : une cellule sur vingt environ porte un point, place au hasard dans le
     // quart central de sa cellule. Colorer la cellule entiere, comme avant, donnait des

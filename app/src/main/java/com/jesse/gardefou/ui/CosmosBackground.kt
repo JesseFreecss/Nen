@@ -68,9 +68,12 @@ private fun CosmosFluid(image: ImageBitmap, modifier: Modifier) {
 
         shader.setInputShader("u_image", bitmapShader)
         shader.setFloatUniform("u_center", size.width / 2f, size.height / 2f)
-        // Rayon de l'anneau dans l'image source (relevé sur le PNG : ~0,36 de sa largeur),
-        // ramené à l'échelle d'affichage.
+        // Échelle de l'ondulation. Ce n'est pas une mesure de l'anneau : c'est le réglage qui
+        // donne son amplitude et son étalement au serpentement, mis au point à l'œil.
         shader.setFloatUniform("u_ringRadius", bitmap.width * 0.36f * scale)
+        // Bord extérieur de l'anneau et de son halo, relevé sur le PNG. En deçà, l'image est
+        // échantillonnée telle quelle ; au-delà commence l'étirement des volutes.
+        shader.setFloatUniform("u_ringOuter", bitmap.width * 0.24f * scale)
         shader.setFloatUniform("u_time", elapsed / 1000f)
 
         drawRect(brush = ShaderBrush(shader), size = size)
@@ -81,18 +84,29 @@ private const val COSMOS_AGSL = """
 uniform shader u_image;
 uniform float2 u_center;
 uniform float u_ringRadius;
+uniform float u_ringOuter;
 uniform float u_time;
 
 half4 main(float2 fragCoord) {
     float2 d = fragCoord - u_center;
     float r = length(d);
     float angle = atan(d.y, d.x);
+    float2 radial = r > 0.001 ? d / r : float2(1.0, 0.0);
+
+    // Étirement des volutes. Au-delà de l'anneau, on échantillonne l'image de moins en moins
+    // loin du centre à mesure qu'on s'éloigne : le peu de matière que porte le pourtour de
+    // l'image se retrouve tiré jusqu'aux bords de l'écran, au lieu de laisser du noir. En
+    // deçà de u_ringOuter le facteur vaut exactement 1 — l'anneau et la sphère noire gardent
+    // leur taille au pixel près, et la transition est lissée pour n'imprimer aucune couture.
+    float pull = mix(1.0, 0.40, smoothstep(u_ringOuter, u_ringOuter * 2.2, r));
+    float sourceR = r <= u_ringOuter ? r : u_ringOuter + (r - u_ringOuter) * pull;
+    float2 p = radial * sourceR;
 
     // Rotation d'ensemble, très lente : la nébuleuse dérive sans qu'on voie tourner l'image.
     float spin = u_time * 0.018;
     float ca = cos(spin);
     float sa = sin(spin);
-    float2 turned = float2(d.x * ca - d.y * sa, d.x * sa + d.y * ca);
+    float2 turned = float2(p.x * ca - p.y * sa, p.x * sa + p.y * ca);
 
     // Ondulation le long de l'anneau : trois harmoniques de périodes premières entre elles,
     // qui ne se remettent donc jamais en phase — le fil ne « bat » pas la mesure.
@@ -103,10 +117,9 @@ half4 main(float2 fragCoord) {
 
     // Amplitude concentrée sur l'anneau : au-delà d'une demi-largeur d'anneau, le fond ne
     // bouge presque plus. Sans cela l'image entière ondulerait comme un drapeau.
-    float band = exp(-pow((r - u_ringRadius) / (u_ringRadius * 0.45), 2.0));
+    float band = exp(-pow((sourceR - u_ringRadius) / (u_ringRadius * 0.45), 2.0));
     float amplitude = u_ringRadius * 0.035 * band;
 
-    float2 radial = r > 0.001 ? d / r : float2(0.0, 0.0);
     float2 tangent = float2(-radial.y, radial.x);
     float2 warped = turned
         + radial * wobble * amplitude
