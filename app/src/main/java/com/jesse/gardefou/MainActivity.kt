@@ -19,37 +19,33 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
@@ -63,22 +59,23 @@ import com.jesse.gardefou.accessibility.NenAccessibilityService
 import com.jesse.gardefou.blocklist.KeywordViewModel
 import com.jesse.gardefou.blocklist.SealVowDialog
 import com.jesse.gardefou.blocklist.VowUnlock
-import com.jesse.gardefou.blocklist.VowsArea
-import com.jesse.gardefou.blocklist.VowsFooter
-import com.jesse.gardefou.blocklist.VowsHeader
+import com.jesse.gardefou.orbs.FaultKind
+import com.jesse.gardefou.orbs.Orb
+import com.jesse.gardefou.orbs.OrbEngine
+import com.jesse.gardefou.orbs.OrbField
+import com.jesse.gardefou.orbs.OrbKind
+import com.jesse.gardefou.orbs.OrbSpec
 import com.jesse.gardefou.pomodoro.PomodoroDialog
-import com.jesse.gardefou.pomodoro.PomodoroSection
 import com.jesse.gardefou.pomodoro.PomodoroStateHolder
+import com.jesse.gardefou.ui.CosmosBackground
 import com.jesse.gardefou.ui.NeteroGate
 import com.jesse.gardefou.ui.theme.NenTheme
 import com.jesse.gardefou.vpn.NenVpnService
 import com.jesse.gardefou.vpn.ProtectionPrefs
 import com.jesse.gardefou.vpn.VpnStateHolder
 import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 
-/**
- * Point d'entrée de l'application (activité de lancement).
- */
 /**
  * FragmentActivity et non ComponentActivity : BiometricPrompt l'exige pour rattacher son
  * invite système au cycle de vie de l'écran.
@@ -98,12 +95,7 @@ class MainActivity : FragmentActivity() {
                 if (!entered) {
                     NeteroGate(onEnter = { entered = true })
                 } else {
-                    Scaffold(
-                        modifier = Modifier.fillMaxSize(),
-                        containerColor = MaterialTheme.colorScheme.background
-                    ) { innerPadding ->
-                        ProtectionScreen(modifier = Modifier.padding(innerPadding))
-                    }
+                    NenScreen()
                 }
             }
         }
@@ -111,32 +103,28 @@ class MainActivity : FragmentActivity() {
 }
 
 /**
- * Écran principal (« Grimoire ») : état de la protection avec sa durée de série, failles à
- * corriger, et liste des vœux scellés (mots-clés bloqués).
+ * L'écran unique de l'app : un champ d'orbes qui flottent devant l'anneau iridescent.
  *
- * Le vocabulaire suit la maquette docs/design/maquette-grimoire.png : la protection est le
- * « Ten », une règle de blocage un « vœu scellé ».
+ * Il n'y a rien d'autre — ni titre, ni carte, ni bouton. Chaque fonction est une orbe, et
+ * tout passe par trois gestes : toucher pour agir, traîner pour déplacer et lancer, maintenir
+ * puis relâcher pour ouvrir un menu.
  */
 @Composable
-fun ProtectionScreen(
-    modifier: Modifier = Modifier,
-    keywordViewModel: KeywordViewModel = viewModel()
-) {
+fun NenScreen(keywordViewModel: KeywordViewModel = viewModel()) {
     val context = LocalContext.current
+    val density = LocalDensity.current
 
-    // État marche/arrêt du VPN, observé depuis le service via VpnStateHolder.
     val isProtected by VpnStateHolder.running.collectAsStateWithLifecycle()
-
-    // Vœux scellés + état de l'import de liste, observés depuis le ViewModel.
     val keywords by keywordViewModel.keywords.collectAsStateWithLifecycle()
-    val importing by keywordViewModel.importing.collectAsStateWithLifecycle()
-    val lastImportCount by keywordViewModel.lastImportCount.collectAsStateWithLifecycle()
+    val pomodoro by PomodoroStateHolder.state.collectAsStateWithLifecycle()
 
     var showSealDialog by remember { mutableStateOf(false) }
-
-    // État du minuteur Pomodoro, tenu par son service (il continue hors de l'app).
-    val pomodoro by PomodoroStateHolder.state.collectAsStateWithLifecycle()
     var showPomodoro by remember { mutableStateOf(false) }
+    var shownFault by remember { mutableStateOf<FaultKind?>(null) }
+
+    // Menus contextuels de l'appui long, ancrés à l'endroit du geste.
+    var sealMenuAt by remember { mutableStateOf<Offset?>(null) }
+    var vowMenuFor by remember { mutableStateOf<Orb?>(null) }
 
     // Vœu actuellement révélé. Il se rescelle tout seul : la révélation est une exception,
     // pas un état dans lequel on s'installe.
@@ -157,20 +145,10 @@ fun ProtectionScreen(
             activity = activity,
             onSuccess = { revealedVowId = vowId },
             onUnavailable = { message ->
-                Toast.makeText(
-                    context,
-                    "Déverrouillage impossible : $message",
-                    Toast.LENGTH_LONG
-                ).show()
+                Toast.makeText(context, "Déverrouillage impossible : $message", Toast.LENGTH_LONG)
+                    .show()
             }
         )
-    }
-
-    // Sélecteur de fichier système : renvoie l'Uri du fichier hosts choisi (ou null si annulé).
-    val importLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri ->
-        if (uri != null) keywordViewModel.importFromUri(uri)
     }
 
     // État "service d'accessibilité activé ?". Rafraîchi à chaque retour au premier plan
@@ -187,13 +165,9 @@ fun ProtectionScreen(
         }
     }
 
-    // État « app exclue des optimisations de batterie ? ». Sans cette exclusion, le système
-    // finit par tuer le service VPN en arrière-plan et la protection se coupe toute seule.
+    // Sans exclusion des optimisations de batterie, le système finit par tuer le service VPN
+    // en arrière-plan et la protection se coupe toute seule.
     var batteryExempt by remember { mutableStateOf(isIgnoringBatteryOptimizations(context)) }
-
-    // Début de la série en cours. Relu à chaque bascule : c'est le service qui l'écrit.
-    var enabledSince by remember { mutableLongStateOf(ProtectionPrefs.enabledSince(context)) }
-    LaunchedEffect(isProtected) { enabledSince = ProtectionPrefs.enabledSince(context) }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -209,7 +183,6 @@ fun ProtectionScreen(
     }
 
     // Lanceur pour la boîte de dialogue système "Autoriser Nen à configurer un VPN ?".
-    // Si l'utilisateur accepte (RESULT_OK), on démarre réellement le service.
     val vpnPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -218,17 +191,14 @@ fun ProtectionScreen(
         }
     }
 
-    // Demande la permission de notification (Android 13+) au premier affichage,
-    // pour que la notification de protection soit visible.
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { /* accordée ou non : le service fonctionne dans les deux cas */ }
 
     // Reprise après un arrêt subi : si l'utilisateur avait laissé la protection active mais
-    // que le VPN ne tourne pas (service tué par le système, et pas toujours relancé par
-    // Android), on le remonte dès l'ouverture de l'app. Sans autorisation VPN encore valide
-    // on ne fait rien : ce serait ouvrir une boîte de dialogue sans que l'utilisateur ait
-    // rien demandé.
+    // que le VPN ne tourne pas (service tué par le système), on le remonte dès l'ouverture.
+    // Sans autorisation VPN encore valide on ne fait rien : ce serait ouvrir une boîte de
+    // dialogue sans que l'utilisateur ait rien demandé.
     LaunchedEffect(isProtected) {
         if (!isProtected && ProtectionPrefs.isEnabled(context) &&
             VpnService.prepare(context) == null
@@ -248,8 +218,7 @@ fun ProtectionScreen(
         }
     }
 
-    // Action de la zone d'état : bascule le VPN.
-    fun onToggleProtection() {
+    fun toggleProtection() {
         if (isProtected) {
             NenVpnService.stop(context)
         } else {
@@ -263,113 +232,85 @@ fun ProtectionScreen(
         }
     }
 
-    // Toute la page défile d'un seul bloc, comme la maquette. Une liste à défilement interne
-    // se retrouverait écrasée à quelques dizaines de dp dès qu'une carte « Faille » s'affiche.
-    LazyColumn(
-        modifier = modifier
+    // Les failles en cours : une orbe rouge par réglage manquant, qui s'efface une fois réglé.
+    val faults = buildList {
+        if (!a11yEnabled) add(FaultKind.ACCESSIBILITY_OFF)
+        if (a11yEnabled && !a11yAlive) add(FaultKind.ACCESSIBILITY_DEAD)
+        if (!batteryExempt) add(FaultKind.BATTERY)
+    }
+
+    val engine = remember { OrbEngine() }
+    val specs = remember(keywords, faults, density) {
+        buildList {
+            add(spec("ten", OrbKind.Ten, TEN_BOX, density.density))
+            add(spec("pomodoro", OrbKind.Pomodoro, POMODORO_BOX, density.density))
+            faults.forEach { fault ->
+                add(spec("fault:${fault.name}", OrbKind.Fault(fault), FAULT_BOX, density.density))
+            }
+            keywords.take(MAX_VOW_ORBS).forEach { vow ->
+                add(spec("vow:${vow.id}", OrbKind.Vow(vow.id), VOW_BOX, density.density))
+            }
+        }
+    }
+
+    Box(
+        modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 24.dp)
+            .background(Color.Black)
     ) {
-        item { GrimoireHeader(modifier = Modifier.padding(top = 32.dp)) }
+        // Le fond va d'un bord à l'autre, mais les orbes restent dans la zone sûre : une orbe
+        // posée sous la barre de navigation serait injoignable.
+        CosmosBackground()
 
-        item {
-            TenStatus(
-                isProtected = isProtected,
-                enabledSince = enabledSince,
-                onToggle = { onToggleProtection() },
-                modifier = Modifier.padding(top = 28.dp)
-            )
-        }
+        OrbField(
+            modifier = Modifier.windowInsetsPadding(WindowInsets.systemBars),
+            engine = engine,
+            specs = specs,
+            tenActive = isProtected,
+            pomodoroActive = pomodoro.running && !pomodoro.paused,
+            revealedVowId = revealedVowId,
+            revealedKeyword = keywords.firstOrNull { it.id == revealedVowId }?.keyword,
+            onTap = { orb ->
+                when (val kind = orb.kind) {
+                    is OrbKind.Ten -> toggleProtection()
+                    is OrbKind.Pomodoro -> showPomodoro = true
+                    is OrbKind.Fault -> shownFault = kind.fault
+                    is OrbKind.Vow -> requestReveal(kind.id)
+                }
+            },
+            onLongPressOrb = { orb -> if (orb.kind is OrbKind.Vow) vowMenuFor = orb },
+            onLongPressBackground = { position -> sealMenuAt = position }
+        )
 
-        // Failles : on n'affiche un bloc que si le réglage manque, pour ne pas encombrer.
-        // Android ne permet pas d'activer le service d'accessibilité par programme : on se
-        // contente de guider l'utilisateur vers la bonne page des réglages.
-        if (!a11yEnabled) {
-            item {
-                FailleCard(
-                    title = "Faille : surveillance in-app",
-                    message = "Pour filtrer les URL dans les navigateurs et détecter les "
-                        + "YouTube Shorts, activez « Protection Nen » dans les réglages "
-                        + "d'accessibilité.",
-                    actionLabel = "Ouvrir les réglages d'accessibilité",
-                    onAction = {
-                        context.startActivity(
-                            Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        )
-                    },
-                    modifier = Modifier.padding(top = 24.dp)
-                )
+        // Les menus n'ont pas d'élément d'interface auquel s'accrocher : on ancre une boîte
+        // de taille nulle à l'endroit exact du geste.
+        sealMenuAt?.let { position ->
+            MenuAnchor(position) {
+                DropdownMenu(expanded = true, onDismissRequest = { sealMenuAt = null }) {
+                    DropdownMenuItem(
+                        text = { Text("Sceller un vœu") },
+                        onClick = {
+                            sealMenuAt = null
+                            showSealDialog = true
+                        }
+                    )
+                }
             }
         }
 
-        // Service activé au niveau système, mais qui ne bat plus : le processus a été tué.
-        // Rouvrir les réglages et basculer l'interrupteur le relance.
-        if (a11yEnabled && !a11yAlive) {
-            item {
-                FailleCard(
-                    title = "Faille : surveillance interrompue",
-                    message = "« Protection Nen » est activée dans les réglages, mais le "
-                        + "service ne répond plus : le système l'a arrêté. Rien n'est "
-                        + "surveillé pour le moment. Désactivez puis réactivez-la dans les "
-                        + "réglages d'accessibilité pour la relancer.",
-                    actionLabel = "Ouvrir les réglages d'accessibilité",
-                    onAction = {
-                        context.startActivity(
-                            Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        )
-                    },
-                    modifier = Modifier.padding(top = 24.dp)
-                )
+        vowMenuFor?.let { orb ->
+            MenuAnchor(Offset(orb.x, orb.y)) {
+                DropdownMenu(expanded = true, onDismissRequest = { vowMenuFor = null }) {
+                    DropdownMenuItem(
+                        text = { Text("Supprimer", color = MaterialTheme.colorScheme.error) },
+                        onClick = {
+                            val id = (orb.kind as OrbKind.Vow).id
+                            vowMenuFor = null
+                            keywords.firstOrNull { it.id == id }?.let(keywordViewModel::remove)
+                        }
+                    )
+                }
             }
-        }
-
-        // Optimisations de batterie : cause n°1 des coupures spontanées de la protection.
-        if (!batteryExempt) {
-            item {
-                FailleCard(
-                    title = "Faille : batterie",
-                    message = "Sans exclusion des optimisations de batterie, le système peut "
-                        + "arrêter Nen en arrière-plan et la protection se coupe toute "
-                        + "seule. Sur Xiaomi, pensez aussi à autoriser le « démarrage "
-                        + "automatique » et à mettre l'économiseur de batterie sur « Aucune "
-                        + "restriction » pour cette app.",
-                    actionLabel = "Exclure des optimisations de batterie",
-                    onAction = { requestIgnoreBatteryOptimizations(context) },
-                    modifier = Modifier.padding(top = 12.dp)
-                )
-            }
-        }
-
-        item {
-            PomodoroSection(
-                state = pomodoro,
-                onOpen = { showPomodoro = true },
-                modifier = Modifier.padding(top = 32.dp)
-            )
-        }
-
-        item { VowsHeader(count = keywords.size, modifier = Modifier.padding(top = 32.dp)) }
-
-        item {
-            VowsArea(
-                keywords = keywords,
-                revealedId = revealedVowId,
-                onOrbClick = { vow -> requestReveal(vow.id) },
-                onUnseal = { vow -> keywordViewModel.remove(vow) },
-                onSealRequest = { showSealDialog = true },
-                modifier = Modifier.padding(top = 20.dp)
-            )
-        }
-
-        item {
-            VowsFooter(
-                importing = importing,
-                lastImportCount = lastImportCount,
-                onImport = { importLauncher.launch("text/*") },
-                modifier = Modifier.padding(top = 24.dp, bottom = 16.dp)
-            )
         }
     }
 
@@ -386,164 +327,120 @@ fun ProtectionScreen(
     if (showPomodoro) {
         PomodoroDialog(state = pomodoro, onDismiss = { showPomodoro = false })
     }
-}
 
-/** Sur-titre « GRIMOIRE » et titre de l'app, en haut de l'écran. */
-@Composable
-private fun GrimoireHeader(modifier: Modifier = Modifier) {
-    Column(modifier = modifier) {
-        Text(
-            text = "GRIMOIRE",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Text(
-            text = "Nen",
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.padding(top = 6.dp)
-        )
-    }
-}
-
-/**
- * Durée de la série en cours et état du Ten. Toute la zone est cliquable : c'est le seul
- * moyen d'activer ou de couper la protection (la maquette n'a pas de bouton dédié).
- */
-@Composable
-private fun TenStatus(
-    isProtected: Boolean,
-    enabledSince: Long,
-    onToggle: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    // Ré-horloge toutes les minutes pour faire avancer le compteur sans quitter l'écran.
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(isProtected, enabledSince) {
-        while (isProtected && enabledSince > 0L) {
-            now = System.currentTimeMillis()
-            delay(60_000)
-        }
-    }
-
-    val segments = if (isProtected && enabledSince > 0L) {
-        streakSegments(now - enabledSince)
-    } else {
-        emptyList()
-    }
-
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .clickable(
-                onClickLabel = if (isProtected) "Rompre le Ten" else "Tisser le Ten",
-                onClick = onToggle
-            )
-            .padding(vertical = 8.dp)
-    ) {
-        if (segments.isEmpty()) {
-            Text(
-                text = "—",
-                style = MaterialTheme.typography.displayMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        } else {
-            Row(verticalAlignment = Alignment.Bottom) {
-                segments.forEach { (value, unit) ->
-                    Text(
-                        text = value,
-                        style = MaterialTheme.typography.displayMedium,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Text(
-                        text = unit,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 3.dp, end = 12.dp, bottom = 6.dp)
+    shownFault?.let { fault ->
+        FaultDialog(
+            fault = fault,
+            onDismiss = { shownFault = null },
+            onAction = {
+                shownFault = null
+                when (fault) {
+                    FaultKind.BATTERY -> requestIgnoreBatteryOptimizations(context)
+                    else -> context.startActivity(
+                        Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     )
                 }
             }
-        }
-
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.padding(top = 10.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (isProtected) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-            )
-            Text(
-                text = if (isProtected) "Ten actif" else "Ten dormant",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-        }
+        )
     }
 }
 
-/**
- * Découpe une durée en au plus deux segments (valeur, unité), du plus significatif au moins :
- * « 3 j 14 h », « 14 h 22 m », puis « 22 m » sous l'heure.
- */
-private fun streakSegments(elapsedMs: Long): List<Pair<String, String>> {
-    val totalMinutes = (elapsedMs.coerceAtLeast(0L)) / 60_000
-    val days = totalMinutes / 1440
-    val hours = (totalMinutes % 1440) / 60
-    val minutes = totalMinutes % 60
-    return when {
-        days > 0 -> listOf(days.toString() to "j", hours.toString() to "h")
-        hours > 0 -> listOf(hours.toString() to "h", minutes.toString() to "m")
-        else -> listOf(minutes.toString() to "m")
-    }
-}
-
-/** Carte d'avertissement pour un réglage manquant qui fragilise la protection. */
+/** Boîte de taille nulle posée à [position], pour donner un point d'ancrage à un menu. */
 @Composable
-private fun FailleCard(
-    title: String,
-    message: String,
-    actionLabel: String,
-    onAction: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(12.dp)
+private fun MenuAnchor(position: Offset, content: @Composable () -> Unit) {
+    Box(
+        modifier = Modifier.offset {
+            IntOffset(position.x.roundToInt(), position.y.roundToInt())
+        }
     ) {
-        Column(modifier = Modifier.padding(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 6.dp)) {
+        content()
+    }
+}
+
+/** Ce qui manque, pourquoi c'est un problème, et le réglage qui le corrige. */
+@Composable
+private fun FaultDialog(fault: FaultKind, onDismiss: () -> Unit, onAction: () -> Unit) {
+    val title: String
+    val message: String
+    val actionLabel: String
+    when (fault) {
+        FaultKind.ACCESSIBILITY_OFF -> {
+            title = "Faille : surveillance in-app"
+            message = "Pour filtrer les URL dans les navigateurs et détecter les YouTube " +
+                "Shorts, activez « Protection Nen » dans les réglages d'accessibilité."
+            actionLabel = "Ouvrir les réglages"
+        }
+        FaultKind.ACCESSIBILITY_DEAD -> {
+            title = "Faille : surveillance interrompue"
+            message = "« Protection Nen » est activée dans les réglages, mais le service ne " +
+                "répond plus : le système l'a arrêté. Rien n'est surveillé pour le moment. " +
+                "Désactivez puis réactivez-la pour la relancer."
+            actionLabel = "Ouvrir les réglages"
+        }
+        FaultKind.BATTERY -> {
+            title = "Faille : batterie"
+            message = "Sans exclusion des optimisations de batterie, le système peut arrêter " +
+                "Nen en arrière-plan et la protection se coupe toute seule. Sur Xiaomi, " +
+                "pensez aussi à autoriser le « démarrage automatique » et à mettre " +
+                "l'économiseur de batterie sur « Aucune restriction » pour cette app."
+            actionLabel = "Exclure des optimisations"
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(16.dp),
+        title = {
             Text(
                 text = title,
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.error
             )
+        },
+        text = {
             Text(
                 text = message,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 6.dp)
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            TextButton(
-                onClick = onAction,
-                modifier = Modifier.padding(top = 4.dp)
-            ) {
-                Text(
-                    text = actionLabel,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary
-                )
+        },
+        confirmButton = {
+            TextButton(onClick = onAction) { Text(actionLabel) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Plus tard", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-    }
+    )
 }
+
+/**
+ * Toutes les orbes suivent la même convention : la sphère occupe 0,30 de sa boîte de dessin,
+ * le reste étant la marge où s'éteint le halo. Le rayon de collision est donc celui de la
+ * sphère visible, halo exclu — deux halos peuvent se chevaucher, deux sphères non.
+ */
+private fun spec(key: String, kind: OrbKind, box: Dp, densityScale: Float): OrbSpec {
+    val boxPx = box.value * densityScale
+    return OrbSpec(key = key, kind = kind, radius = boxPx * 0.30f, boxSize = boxPx)
+}
+
+private val TEN_BOX = 104.dp
+private val POMODORO_BOX = 62.dp
+private val FAULT_BOX = 58.dp
+private val VOW_BOX = 62.dp
+
+/**
+ * Après un import de liste hosts, la base peut compter des dizaines de milliers d'entrées :
+ * on ne fait flotter que les premières. Au-delà, ni l'écran ni la boucle de collisions ne
+ * suivraient.
+ */
+private const val MAX_VOW_ORBS = 40
+
+/** Durée d'une révélation avant que le vœu ne se rescelle. */
+private const val REVEAL_DURATION_MS = 10_000L
 
 /**
  * Indique si le service d'accessibilité de Nen est actuellement activé par l'utilisateur.
@@ -594,16 +491,5 @@ private fun requestIgnoreBatteryOptimizations(context: Context) {
                 Toast.LENGTH_LONG
             ).show()
         }
-    }
-}
-
-/** Durée d'une révélation avant que le vœu ne se rescelle. */
-private const val REVEAL_DURATION_MS = 10_000L
-
-@Preview(showBackground = true, backgroundColor = 0xFF141414)
-@Composable
-fun ProtectionScreenPreview() {
-    NenTheme {
-        ProtectionScreen()
     }
 }

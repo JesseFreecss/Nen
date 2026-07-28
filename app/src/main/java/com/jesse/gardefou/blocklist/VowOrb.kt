@@ -4,9 +4,6 @@ import android.graphics.RuntimeShader
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -42,8 +39,6 @@ import kotlin.math.sin
  */
 @Composable
 fun VowOrb(
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
     // La sphère n'occupe que 60 % de la boîte : le reste est la marge dans laquelle le
     // halo s'éteint.
@@ -51,18 +46,15 @@ fun VowOrb(
     seed: Int = 0
 ) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        VowOrbFluid(onClick, onLongClick, modifier, diameter, seed)
+        VowOrbFluid(modifier, diameter, seed)
     } else {
-        VowOrbPainted(onClick, onLongClick, modifier, diameter, seed)
+        VowOrbPainted(modifier, diameter, seed)
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @Composable
 private fun VowOrbFluid(
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
     modifier: Modifier,
     diameter: Dp,
     seed: Int
@@ -78,13 +70,6 @@ private fun VowOrbFluid(
         modifier = modifier
             .size(diameter)
             .semantics { contentDescription = "Vœu scellé, toucher pour révéler" }
-            .combinedClickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onLongClickLabel = "Supprimer ce vœu",
-                onLongClick = onLongClick,
-                onClick = onClick
-            )
     ) {
         shader.setFloatUniform("u_resolution", size.width, size.height)
         shader.setFloatUniform("u_time", elapsedMillis / 1000f + timeOffset)
@@ -127,11 +112,13 @@ float fbm(float2 st) {
     return value;
 }
 
+// Teintes relevées sur l'anneau du fond : un noir profond, un indigo, le bleu des volutes et
+// le vert d'eau des reflets. La sphère doit avoir l'air taillée dans la même matière que lui.
 float3 palette(float f, float2 q, float2 r) {
-    float3 blackC = float3(0.02, 0.015, 0.03);
-    float3 indigo = float3(0.16, 0.05, 0.42);
-    float3 blueC = float3(0.09, 0.19, 0.60);
-    float3 violet = float3(0.46, 0.18, 0.86);
+    float3 blackC = float3(0.010, 0.012, 0.028);
+    float3 indigo = float3(0.10, 0.06, 0.30);
+    float3 blueC = float3(0.10, 0.22, 0.52);
+    float3 violet = float3(0.40, 0.26, 0.74);
     float3 col = mix(blackC, indigo, clamp(f * 1.4, 0.0, 1.0));
     col = mix(col, blueC, clamp(length(q) * 0.9, 0.0, 1.0));
     col = mix(col, violet, clamp(pow(max(r.x * 0.5 + 0.5, 0.0), 3.0), 0.0, 1.0));
@@ -157,7 +144,14 @@ half4 main(float2 fragCoord) {
 
     float3 marble = palette(f, q, r);
     float rimDarken = smoothstep(0.5, 1.0, dist);
-    marble *= mix(1.18, 0.72, rimDarken);
+    marble *= mix(1.10, 0.62, rimDarken);
+
+    // Liseré nacré : la même écharpe de lumière qui court sur l'anneau du fond, ramenée à
+    // l'échelle de la sphère. C'est lui qui empêche l'orbe de se lire comme un disque plat.
+    float rim = smoothstep(0.62, 0.98, dist);
+    float iridescence = sin(u_time * 0.35 + f * 7.0 + q.x * 3.0) * 0.5 + 0.5;
+    float3 rimColor = mix(float3(0.52, 0.95, 0.88), float3(0.72, 0.60, 1.00), iridescence);
+    marble += rim * rimColor * 0.30;
 
     // Paillettes : une cellule sur vingt environ porte un point, place au hasard dans le
     // quart central de sa cellule. Colorer la cellule entiere, comme avant, donnait des
@@ -173,7 +167,7 @@ half4 main(float2 fragCoord) {
     float sparkle = smoothstep(0.94, 1.0, sparkleSeed) * twinkle * point * point;
     marble += sparkle * float3(1.0, 0.85, 0.55) * 1.3;
 
-    float inside = 1.0 - smoothstep(0.92, 1.02, dist);
+    float inside = 1.0 - smoothstep(0.88, 1.03, dist);
 
     // Un seul dégradé pour tout le pourtour, au lieu d'un anneau net doublé d'un halo :
     // il part de la surface de la sphère et vaut déjà moins de 1 % à dist 1.6, alors que
@@ -202,11 +196,8 @@ half4 main(float2 fragCoord) {
  * d'arcs et de dégradés ordinaires (pas de bruit fractal, trop coûteux à recalculer en
  * Kotlin par frame pour une grille de plusieurs dizaines d'orbes).
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun VowOrbPainted(
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
     modifier: Modifier,
     diameter: Dp,
     seed: Int
@@ -220,16 +211,11 @@ private fun VowOrbPainted(
         modifier = modifier
             .size(diameter)
             .semantics { contentDescription = "Vœu scellé, toucher pour révéler" }
-            .combinedClickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onLongClickLabel = "Supprimer ce vœu",
-                onLongClick = onLongClick,
-                onClick = onClick
-            )
     ) {
         val center = Offset(size.width / 2f, size.height / 2f)
-        val radius = min(size.width, size.height) / 2f * 0.44f
+        // Même sphère que la version AGSL (0,30 de la boîte) : les deux rendus doivent occuper
+        // exactement la même place, le moteur de collisions ne connaît qu'un rayon.
+        val radius = min(size.width, size.height) / 2f * 0.60f
         val angle = (elapsed * speed + phase) % 360f
         val pulse = (sin(elapsed / 380f + seed) + 1f) / 2f
         val heartbeat = (sin(elapsed / 90f + seed * 3f) + 1f) / 2f
@@ -237,7 +223,7 @@ private fun VowOrbPainted(
         // Halo en un seul dégradé, qui culmine à la surface de la sphère et s'éteint
         // avant le bord de la boîte. Les disques de couleur plate d'avant avaient une
         // arête franche, et débordaient de la boîte : elle les coupait en carré.
-        val glowRadius = radius * 2.2f
+        val glowRadius = radius * 1.62f
         drawCircle(
             brush = Brush.radialGradient(
                 0.00f to Color.Transparent,
