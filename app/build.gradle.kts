@@ -72,6 +72,13 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.biometric)
 
+    // Fragment moderne, imposé explicitement. androidx.biometric:1.1.0 tire fragment 1.2.5,
+    // dont FragmentActivity refuse encore tout code de requête au-delà de 16 bits — or c'est
+    // exactement ce que génère l'API de résultat d'activité. Sans cette ligne, TOUT lanceur
+    // (sélecteur de fichier, autorisation VPN, permission de notification) plante l'app avec
+    // « Can only use lower 16 bits for requestCode ».
+    implementation(libs.androidx.fragment)
+
     // Outils Compose réservés au build de debug (aperçus @Preview dans Android Studio).
     debugImplementation(libs.androidx.ui.tooling)
 }

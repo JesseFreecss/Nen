@@ -122,11 +122,17 @@ half3 dust(float2 uv, float t) {
     // régularité du bruit et à donner des volutes plutôt que des taches.
     float2 fold = float2(sin(q.y * 2.3 + t * 0.08), cos(q.x * 2.1 - t * 0.06)) * 0.36;
     float n = fbm(q + fold);
-    float density = smoothstep(0.42, 0.92, n);
+    // Deux échelles superposées, et des seuils bas : la grande porte des voiles larges, la
+    // petite des filaments. Avec un seul seuil élevé, la poussière ne se montrait que dans
+    // les plus fortes concentrations de bruit et laissait des pans d'écran vides.
+    float n2 = fbm(q * 0.62 + float2(11.3, 4.7) - fold * 0.6);
+    float density = 0.14
+        + smoothstep(0.28, 0.86, n) * 0.68
+        + smoothstep(0.32, 0.90, n2) * 0.48;
 
     half3 cool = half3(0.07, 0.13, 0.38);
     half3 warm = half3(0.24, 0.11, 0.44);
-    half3 cloud = mix(cool, warm, n) * density * 0.85;
+    half3 cloud = mix(cool, warm, n) * density * 1.05;
 
     // Quelques étoiles : une cellule sur cinquante environ, qui scintille.
     float2 g = uv * 0.011;
