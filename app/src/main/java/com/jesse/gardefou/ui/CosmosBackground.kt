@@ -86,82 +86,26 @@ uniform float u_ringRadius;
 uniform float u_ringOuter;
 uniform float u_time;
 
-float hash(float2 p) {
-    return fract(sin(dot(p, float2(12.9898, 78.233))) * 43758.5453123);
-}
-
-float noise(float2 p) {
-    float2 i = floor(p);
-    float2 f = fract(p);
-    float a = hash(i);
-    float b = hash(i + float2(1.0, 0.0));
-    float c = hash(i + float2(0.0, 1.0));
-    float d = hash(i + float2(1.0, 1.0));
-    float2 u = f * f * (3.0 - 2.0 * f);
-    return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
-}
-
-float fbm(float2 p) {
-    float value = 0.0;
-    float amp = 0.5;
-    for (int i = 0; i < 3; i++) {
-        value += amp * noise(p);
-        p *= 2.07;
-        amp *= 0.5;
-    }
-    return value;
-}
-
 /**
- * Poussière d'étoile : une nébuleuse calculée, qui prolonge celle de l'image jusqu'aux bords
- * de l'écran. Elle dérive en translation, sans déformation — l'image, elle, n'est pas touchée.
+ * Une copie des volutes de l'image, recentrée ailleurs à l'écran.
+ *
+ * Rien n'est calculé ni déformé : ce sont les nébulosités de l'image d'origine, échantillonnées
+ * autour d'un autre centre, tournées et redimensionnées. Leur anneau et leur sphère noire sont
+ * effacés, on ne garde que la matière qui flotte autour — c'est elle qu'il s'agit d'étendre au
+ * reste de l'écran.
+ *
+ * @param d      position du pixel, relative au centre de l'écran
+ * @param offset centre de cette copie, lui aussi relatif au centre de l'écran
  */
-half3 dust(float2 uv, float t) {
-    float2 q = uv * 0.0034 + float2(t * 0.0060, -t * 0.0042);
-    // Le champ se replie sur lui-même : deux ondulations lentes suffisent à casser la
-    // régularité du bruit et à donner des volutes plutôt que des taches.
-    float2 fold = float2(sin(q.y * 2.3 + t * 0.08), cos(q.x * 2.1 - t * 0.06)) * 0.36;
-    float n = fbm(q + fold);
+half3 nebulaCopy(float2 d, float2 offset, float angle, float zoom) {
+    float2 v = d - offset;
+    float ca = cos(angle);
+    float sa = sin(angle);
+    v = float2(v.x * ca - v.y * sa, v.x * sa + v.y * ca) / zoom;
 
-    // On suit les CRÊTES du bruit, et non son niveau : seuiller le niveau teintait tout le
-    // champ, ne serait-ce que faiblement, et ce voile continu noyait les filaments.
-    //
-    // La retombée est une puissance élevée, pas un seuil : un seuil donnait des traits de
-    // largeur constante et de bord net, qui se lisaient comme des vermicelles. Une puissance
-    // laisse un cœur brillant qui s'éteint progressivement de part et d'autre, et atteint le
-    // noir franc à quelques pixels — c'est ce dégradé qui fait la nébulosité.
-    float ridge = 1.0 - abs(n * 2.0 - 1.0);
-    float filament = pow(ridge, 46.0);
-    // Duvet : la même crête avec une puissance bien plus faible, donc une bande large, mais à
-    // une intensité dérisoire. Elle ne se voit que serrée contre le fil, où elle lui ôte son
-    // trait net ; à quelques pixels de là elle est déjà retombée à zéro.
-    float down = pow(ridge, 9.0);
-
-    // Seconde nappe, deux fois plus large et décalée : les filaments se croisent au lieu de
-    // courir tous dans le même sens.
-    float n2 = fbm(q * 0.5 + float2(11.3, 4.7) - fold * 0.6);
-    float veil = pow(1.0 - abs(n2 * 2.0 - 1.0), 22.0);
-
-    // Répartition en bancs : sans elle, les filaments couvrent l'écran d'un maillage régulier
-    // qui trahit le procédé. Ils se regroupent, et laissent ailleurs de vastes plages vides.
-    float patches = smoothstep(0.34, 0.78, fbm(q * 0.21 + float2(3.7, 8.1)));
-
-    half3 cool = half3(0.30, 0.50, 1.00);
-    half3 warm = half3(0.55, 0.34, 1.00);
-    half3 cloud = mix(cool, warm, n) *
-        (filament * 0.50 + down * 0.10 + veil * 0.26) * (0.18 + 0.82 * patches);
-
-    // Quelques étoiles : une cellule sur cinquante environ, qui scintille.
-    float2 g = uv * 0.011;
-    float2 cell = floor(g);
-    float seed = hash(cell);
-    float2 spot = float2(hash(cell + 1.7), hash(cell + 4.3));
-    float spotDist = length(fract(g) - spot);
-    float point = 1.0 - smoothstep(0.0, 0.07, spotDist);
-    float twinkle = 0.55 + 0.45 * sin(t * 1.6 + seed * 37.0);
-    cloud += half3(0.75, 0.85, 1.0) * smoothstep(0.978, 1.0, seed) * point * twinkle;
-
-    return cloud;
+    // Fondu large : une coupure nette laisserait voir le disque de la copie.
+    float keep = smoothstep(u_ringOuter * 0.90, u_ringOuter * 1.55, length(v));
+    return u_image.eval(u_center + v).rgb * keep;
 }
 
 half4 main(float2 fragCoord) {
@@ -203,9 +147,21 @@ half4 main(float2 fragCoord) {
     // Gain multiplicatif : il éclaircit la matière sans jamais lever le noir, qui reste noir.
     half3 rgb = color.rgb * breath * 1.30;
 
-    // La poussière ne pénètre pas la sphère noire : elle commence au-delà de l'anneau.
+    // Trois copies des volutes, centrées hors écran de part et d'autre, qui dérivent et
+    // tournent lentement chacune à son rythme. Elles se recouvrent sans jamais se remettre en
+    // phase, ce qui les empêche de se lire comme la même image répétée.
+    //
+    // Rien n'est ajouté là où l'image ne porte rien : ces copies sont noires entre leurs
+    // volutes, donc le fond reste noir, et elles n'introduisent aucun voile.
+    float drift = u_time * 0.010;
+    half3 extra = half3(0.0);
+    extra += nebulaCopy(d, float2(-380.0, -1560.0 + sin(drift) * 90.0), 0.7 + drift, 1.20) * 0.62;
+    extra += nebulaCopy(d, float2(420.0, 1620.0 - cos(drift * 0.8) * 80.0), 2.4 - drift * 0.7, 1.05) * 0.58;
+    extra += nebulaCopy(d, float2(-1250.0 + cos(drift * 1.3) * 70.0, 620.0), 4.1 + drift * 0.5, 1.35) * 0.50;
+
+    // Les copies ne pénètrent pas la sphère noire : elles commencent au-delà de l'anneau.
     float outside = smoothstep(u_ringOuter * 0.98, u_ringOuter * 1.45, r);
-    rgb += dust(fragCoord, u_time) * outside;
+    rgb += extra * outside;
 
     return half4(rgb, color.a);
 }
