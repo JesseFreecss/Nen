@@ -31,12 +31,14 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -68,6 +70,9 @@ import com.jesse.gardefou.orbs.OrbKind
 import com.jesse.gardefou.orbs.OrbSpec
 import com.jesse.gardefou.pomodoro.PomodoroDialog
 import com.jesse.gardefou.pomodoro.PomodoroStateHolder
+import com.jesse.gardefou.sound.AmbiencePrefs
+import com.jesse.gardefou.sound.AmbienceService
+import com.jesse.gardefou.sound.AmbienceStateHolder
 import com.jesse.gardefou.ui.CosmosBackground
 import com.jesse.gardefou.ui.NeteroGate
 import com.jesse.gardefou.ui.theme.NenTheme
@@ -119,13 +124,31 @@ fun NenScreen(keywordViewModel: KeywordViewModel = viewModel()) {
     val keywords by keywordViewModel.keywords.collectAsStateWithLifecycle()
     val pomodoro by PomodoroStateHolder.state.collectAsStateWithLifecycle()
 
+    val soundPlaying by AmbienceStateHolder.playing.collectAsStateWithLifecycle()
+
     var showSealDialog by remember { mutableStateOf(false) }
     var showPomodoro by remember { mutableStateOf(false) }
+    var showVolume by remember { mutableStateOf(false) }
     var shownFault by remember { mutableStateOf<FaultKind?>(null) }
 
     // Menus contextuels de l'appui long, ancrés à l'endroit du geste.
     var sealMenuAt by remember { mutableStateOf<Offset?>(null) }
     var vowMenuFor by remember { mutableStateOf<Orb?>(null) }
+    var soundMenuFor by remember { mutableStateOf<Orb?>(null) }
+
+    // Sélecteur de morceau. OpenDocument et non GetContent : lui seul donne une autorisation
+    // d'accès durable, sans quoi le morceau deviendrait illisible au prochain démarrage.
+    val trackPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            context.contentResolver.takePersistableUriPermission(
+                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+            AmbiencePrefs.setTrackUri(context, uri)
+            AmbienceService.send(context, AmbienceService.ACTION_PLAY)
+        }
+    }
 
     // Vœu actuellement révélé. Il se rescelle tout seul : la révélation est une exception,
     // pas un état dans lequel on s'installe.
@@ -246,6 +269,7 @@ fun NenScreen(keywordViewModel: KeywordViewModel = viewModel()) {
         buildList {
             add(spec("ten", OrbKind.Ten, TEN_BOX, density.density))
             add(spec("pomodoro", OrbKind.Pomodoro, POMODORO_BOX, density.density))
+            add(spec("sound", OrbKind.Sound, SOUND_BOX, density.density))
             faults.forEach { fault ->
                 add(spec("fault:${fault.name}", OrbKind.Fault(fault), FAULT_BOX, density.density))
             }
@@ -270,6 +294,7 @@ fun NenScreen(keywordViewModel: KeywordViewModel = viewModel()) {
             specs = specs,
             tenActive = isProtected,
             pomodoroActive = pomodoro.running && !pomodoro.paused,
+            soundPlaying = soundPlaying,
             revealedVowId = revealedVowId,
             revealedKeyword = keywords.firstOrNull { it.id == revealedVowId }?.keyword,
             onTap = { orb ->
@@ -278,9 +303,20 @@ fun NenScreen(keywordViewModel: KeywordViewModel = viewModel()) {
                     is OrbKind.Pomodoro -> showPomodoro = true
                     is OrbKind.Fault -> shownFault = kind.fault
                     is OrbKind.Vow -> requestReveal(kind.id)
+                    is OrbKind.Sound -> when {
+                        soundPlaying -> AmbienceService.send(context, AmbienceService.ACTION_STOP)
+                        AmbiencePrefs.trackUri(context) == null -> trackPicker.launch(AUDIO_MIME)
+                        else -> AmbienceService.send(context, AmbienceService.ACTION_PLAY)
+                    }
                 }
             },
-            onLongPressOrb = { orb -> if (orb.kind is OrbKind.Vow) vowMenuFor = orb },
+            onLongPressOrb = { orb ->
+                when (orb.kind) {
+                    is OrbKind.Vow -> vowMenuFor = orb
+                    is OrbKind.Sound -> soundMenuFor = orb
+                    else -> Unit
+                }
+            },
             onLongPressBackground = { position -> sealMenuAt = position }
         )
 
@@ -314,6 +350,39 @@ fun NenScreen(keywordViewModel: KeywordViewModel = viewModel()) {
                 }
             }
         }
+
+        soundMenuFor?.let { orb ->
+            MenuAnchor(Offset(orb.x, orb.y)) {
+                DropdownMenu(expanded = true, onDismissRequest = { soundMenuFor = null }) {
+                    DropdownMenuItem(
+                        text = { Text("Choisir un morceau") },
+                        onClick = {
+                            soundMenuFor = null
+                            trackPicker.launch(AUDIO_MIME)
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Volume") },
+                        onClick = {
+                            soundMenuFor = null
+                            showVolume = true
+                        }
+                    )
+                    if (AmbiencePrefs.trackUri(context) != null) {
+                        DropdownMenuItem(
+                            text = {
+                                Text("Retirer le morceau", color = MaterialTheme.colorScheme.error)
+                            },
+                            onClick = {
+                                soundMenuFor = null
+                                AmbienceService.send(context, AmbienceService.ACTION_STOP)
+                                AmbiencePrefs.setTrackUri(context, null)
+                            }
+                        )
+                    }
+                }
+            }
+        }
     }
 
     if (showSealDialog) {
@@ -328,6 +397,21 @@ fun NenScreen(keywordViewModel: KeywordViewModel = viewModel()) {
 
     if (showPomodoro) {
         PomodoroDialog(state = pomodoro, onDismiss = { showPomodoro = false })
+    }
+
+    if (showVolume) {
+        VolumeDialog(
+            initial = AmbiencePrefs.volume(context),
+            onChange = { value ->
+                AmbiencePrefs.setVolume(context, value)
+                // Sans lecture en cours, le service n'a rien à ajuster : il se rendormirait
+                // aussitôt. Le nouveau volume sera pris au prochain démarrage.
+                if (soundPlaying) {
+                    AmbienceService.send(context, AmbienceService.ACTION_SET_VOLUME)
+                }
+            },
+            onDismiss = { showVolume = false }
+        )
     }
 
     shownFault?.let { fault ->
@@ -355,6 +439,37 @@ fun NenScreen(keywordViewModel: KeywordViewModel = viewModel()) {
             }
         )
     }
+}
+
+/** Réglage du volume de l'ambiance. */
+@Composable
+private fun VolumeDialog(initial: Float, onChange: (Float) -> Unit, onDismiss: () -> Unit) {
+    var value by remember { mutableFloatStateOf(initial) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(16.dp),
+        title = {
+            Text(
+                text = "Volume de l'ambiance",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        },
+        text = {
+            Slider(
+                value = value,
+                onValueChange = {
+                    value = it
+                    onChange(it)
+                }
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Fermer") }
+        }
+    )
 }
 
 /** Boîte de taille nulle posée à [position], pour donner un point d'ancrage à un menu. */
@@ -460,8 +575,12 @@ private fun spec(key: String, kind: OrbKind, box: Dp, densityScale: Float): OrbS
     return OrbSpec(key = key, kind = kind, radius = boxPx * 0.30f, boxSize = boxPx)
 }
 
+/** Types MIME acceptés par le sélecteur de morceau. */
+private val AUDIO_MIME = arrayOf("audio/*")
+
 private val TEN_BOX = 52.dp
 private val POMODORO_BOX = 31.dp
+private val SOUND_BOX = 31.dp
 private val FAULT_BOX = 29.dp
 private val VOW_BOX = 31.dp
 

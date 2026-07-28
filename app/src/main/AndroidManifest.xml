@@ -11,6 +11,8 @@
     <!-- Service au premier plan (le VPN doit tourner en foreground). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- Ambiance sonore : la lecture doit se poursuivre hors de l'app. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <!-- Afficher la notification de protection (Android 13+). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!--
@@ -75,6 +77,12 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Minuteur Pomodoro lancé par l'utilisateur, dont le décompte doit se poursuivre en arrière-plan" />
         </service>
+
+        <!-- Ambiance sonore, jouée en boucle. -->
+        <service
+            android:name=".sound.AmbienceService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <!--
             Service d'accessibilité (étape 3). La permission BIND_ACCESSIBILITY_SERVICE est

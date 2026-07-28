@@ -56,6 +56,7 @@ fun OrbField(
     specs: List<OrbSpec>,
     tenActive: Boolean,
     pomodoroActive: Boolean,
+    soundPlaying: Boolean,
     revealedVowId: Long?,
     revealedKeyword: String?,
     onTap: (Orb) -> Unit,
@@ -168,6 +169,7 @@ fun OrbField(
                         is OrbKind.Ten -> TenOrb(active = tenActive, diameter = diameter)
                         is OrbKind.Pomodoro ->
                             PomodoroOrb(active = pomodoroActive, diameter = diameter)
+                        is OrbKind.Sound -> SoundOrb(playing = soundPlaying, diameter = diameter)
                         is OrbKind.Fault -> FaultOrb(diameter = diameter)
                         is OrbKind.Vow -> VowOrb(diameter = diameter, seed = orb.seed)
                     }

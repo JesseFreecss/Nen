@@ -19,6 +19,9 @@ sealed interface OrbKind {
     /** Minuteur Pomodoro. */
     data object Pomodoro : OrbKind
 
+    /** Ambiance sonore : lecture en boucle du morceau choisi. */
+    data object Sound : OrbKind
+
     /** Un réglage manquant qui fragilise la protection. Disparaît une fois réglé. */
     data class Fault(val fault: FaultKind) : OrbKind
 

@@ -117,6 +117,51 @@ fun PomodoroOrb(
 }
 
 /**
+ * L'orbe de l'ambiance sonore. Ambre chaud — la seule teinte tiède du champ, elle ne peut se
+ * confondre avec aucune autre. Ses boucles s'écartent et se resserrent au repos comme au
+ * rythme d'une respiration ; en lecture, elles battent plus large et plus vite.
+ */
+@Composable
+fun SoundOrb(
+    playing: Boolean,
+    modifier: Modifier = Modifier,
+    diameter: Dp = 31.dp
+) {
+    val elapsed = rememberElapsedMillis()
+
+    Canvas(
+        modifier = modifier
+            .size(diameter)
+            .semantics {
+                contentDescription = if (playing) "Ambiance en cours, toucher pour couper"
+                else "Ambiance, toucher pour lancer"
+            }
+    ) {
+        val center = Offset(size.width / 2f, size.height / 2f)
+        val radius = min(size.width, size.height) / 2f * 0.60f
+        val intensity = if (playing) 1f else 0.42f
+        val wave = (sin(elapsed / (if (playing) 520f else 1400f)) + 1f) / 2f
+        val spin = elapsed * (if (playing) 0.040f else 0.012f)
+
+        drawBloom(center, radius, AMBER_HOT, AMBER_DEEP, (0.26f + wave * 0.18f) * intensity)
+        drawCore(center, radius, AMBER, 0.12f * intensity)
+
+        // Les deux boucles s'écartent en opposition de phase : l'orbe semble pulser au son.
+        drawLoop(
+            center, radius * (0.92f + wave * 0.07f), flatten = 0.98f, rotation = spin,
+            width = radius * 0.075f, hot = AMBER_HOT, cool = AMBER,
+            alpha = (0.88f + wave * 0.12f) * intensity
+        )
+        drawLoop(
+            center, radius * (0.94f - wave * 0.07f), flatten = 0.93f,
+            rotation = -spin * 1.4f + 52f,
+            width = radius * 0.05f, hot = AMBER, cool = AMBER_DEEP,
+            alpha = 0.62f * intensity
+        )
+    }
+}
+
+/**
  * L'orbe d'une faille : un réglage manque et fragilise la protection. Mêmes filaments, mais
  * rouges et au battement nerveux — elle attire l'œil sans hurler, et disparaît d'elle-même
  * une fois le réglage fait.
@@ -269,6 +314,10 @@ private val IRIS_ROSE = Color(0xFFEFA7E6)
 
 private val WHITE_WARM = Color(0xFFF3F6FF)
 private val WHITE_COOL = Color(0xFFBFD4FF)
+
+private val AMBER_HOT = Color(0xFFFFE0A8)
+private val AMBER = Color(0xFFFFC46B)
+private val AMBER_DEEP = Color(0xFF9A5A1E)
 
 private val DANGER_HOT = Color(0xFFFF9AA6)
 private val DANGER = Color(0xFFCF6679)
