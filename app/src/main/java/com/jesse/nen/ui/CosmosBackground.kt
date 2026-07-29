@@ -174,6 +174,12 @@ half4 main(float2 fragCoord) {
     // une vraie rotation l'enverrait viser le bas de l'image, qui est vide (voir le PNG source).
     extra += nebulaCopy(d, float2(hw * 1.32 - cos(drift * 0.9) * hw * 0.06, hh * 1.32 - sin(drift * 0.9) * hh * 0.06), 0.15 - drift * 0.3, 0.45) * 0.75;
     extra += nebulaCopy(d, float2(-hw * 1.32 + sin(drift * 1.2) * hw * 0.06, hh * 1.32 + cos(drift * 1.2) * hh * 0.06), -0.15 + drift * 0.3, 0.42) * 0.75;
+    // Le haut de l'écran restait noir : aucune copie n'y pointait. Repérés par sondage direct
+    // du PNG source (hors de l'anneau, la poussière ne forme pas un halo continu mais des amas
+    // ponctuels), ces deux offsets ramènent, sans rotation ni zoom, un amas dense sur le haut
+    // et un autre sur le bas de l'écran — les coins auraient tout aussi bien pu rester vides.
+    extra += nebulaCopy(d, float2(hw * -1.13 + sin(drift * 1.1) * hw * 0.05, hh * -0.53 - cos(drift * 1.1) * hh * 0.03), drift * 0.3, 1.0) * 0.85;
+    extra += nebulaCopy(d, float2(hw * 1.19 - cos(drift * 0.8) * hw * 0.05, hh * 0.79 + sin(drift * 0.8) * hh * 0.03), drift * 0.3, 1.0) * 0.85;
 
     // Les copies ne pénètrent pas la sphère noire : elles commencent au-delà de l'anneau.
     float outside = smoothstep(u_ringOuter * 0.98, u_ringOuter * 1.45, r);
