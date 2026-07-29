@@ -11,7 +11,7 @@ anti-contournement, vœux scellés et minuteur Pomodoro.
 - **Kotlin** + **Jetpack Compose** (Material 3), thème sombre uniquement
 - **Room** pour la persistance des mots-clés, **coroutines** pour le VPN et la base
 - **minSdk 26** (Android 8.0), **compileSdk/targetSdk 35**, bytecode Java 17
-- Package : `com.jesse.gardefou` (l'app s'appelle « Nen », le package n'a pas été renommé)
+- Package : `com.jesse.nen`
 
 Les numéros de version (AGP, Kotlin, Gradle, dépendances) sont centralisés dans
 `gradle/libs.versions.toml` — c'est la source de vérité, pas ce README.
@@ -51,7 +51,7 @@ fois pour tout le champ dans `orbs/OrbField.kt`.
 ## Structure des dossiers
 
 ```
-com/jesse/gardefou/
+com/jesse/nen/
 ├── MainActivity.kt     # assemblage de l'écran : porte, fond, champ d'orbes
 ├── orbs/               # moteur de simulation, rendu et gestes des orbes
 ├── ui/                 # fond animé, porte d'entrée, thème Material 3

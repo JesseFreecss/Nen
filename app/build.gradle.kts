@@ -9,12 +9,12 @@ plugins {
 
 android {
     // Espace de noms Kotlin/Java du module (sert aussi de base à la classe R).
-    namespace = "com.jesse.gardefou"
+    namespace = "com.jesse.nen"
     // Version du SDK utilisée pour COMPILER (API la plus récente stable).
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.jesse.gardefou"  // Identifiant unique de l'app sur l'appareil
+        applicationId = "com.jesse.nen"  // Identifiant unique de l'app sur l'appareil
         minSdk = 26                            // Android 8.0 minimum
         targetSdk = 35                         // Cible testée (comportement runtime)
         versionCode = 1                        // Entier incrémenté à chaque release
