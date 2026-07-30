@@ -1,6 +1,5 @@
 package com.jesse.nen.orbs
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
@@ -9,10 +8,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -24,9 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventTimeoutCancellationException
 import androidx.compose.ui.input.pointer.pointerInput
@@ -37,7 +30,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import com.jesse.nen.blocklist.VowOrb
+import com.jesse.nen.blocklist.SermentOrb
 import kotlin.math.roundToInt
 
 /**
@@ -57,8 +50,6 @@ fun OrbField(
     tenActive: Boolean,
     pomodoroActive: Boolean,
     soundPlaying: Boolean,
-    revealedVowId: Long?,
-    revealedKeyword: String?,
     onTap: (Orb) -> Unit,
     onLongPressOrb: (Orb) -> Unit,
     onLongPressBackground: (Offset) -> Unit,
@@ -171,20 +162,7 @@ fun OrbField(
                             PomodoroOrb(active = pomodoroActive, diameter = diameter)
                         is OrbKind.Sound -> SoundOrb(playing = soundPlaying, diameter = diameter)
                         is OrbKind.Fault -> FaultOrb(diameter = diameter)
-                        is OrbKind.Vow -> VowOrb(diameter = diameter, seed = orb.seed)
-                    }
-
-                    // Le vœu révélé s'écrit sous son orbe, le temps de la révélation.
-                    if (kind is OrbKind.Vow && kind.id == revealedVowId && revealedKeyword != null) {
-                        Text(
-                            text = revealedKeyword,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onBackground,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color.Black.copy(alpha = 0.65f))
-                                .padding(horizontal = 8.dp, vertical = 2.dp)
-                        )
+                        is OrbKind.Serment -> SermentOrb(diameter = diameter)
                     }
                 }
             }

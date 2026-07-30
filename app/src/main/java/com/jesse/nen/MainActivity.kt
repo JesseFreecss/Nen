@@ -60,7 +60,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jesse.nen.accessibility.A11yHeartbeat
 import com.jesse.nen.accessibility.NenAccessibilityService
 import com.jesse.nen.blocklist.KeywordViewModel
-import com.jesse.nen.blocklist.SealVowDialog
+import com.jesse.nen.blocklist.SermentDialog
 import com.jesse.nen.blocklist.VowUnlock
 import com.jesse.nen.orbs.FaultKind
 import com.jesse.nen.orbs.Orb
@@ -126,14 +126,12 @@ fun NenScreen(keywordViewModel: KeywordViewModel = viewModel()) {
 
     val soundPlaying by AmbienceStateHolder.playing.collectAsStateWithLifecycle()
 
-    var showSealDialog by remember { mutableStateOf(false) }
+    var showSermentDialog by remember { mutableStateOf(false) }
     var showPomodoro by remember { mutableStateOf(false) }
     var showVolume by remember { mutableStateOf(false) }
     var shownFault by remember { mutableStateOf<FaultKind?>(null) }
 
-    // Menus contextuels de l'appui long, ancrés à l'endroit du geste.
-    var sealMenuAt by remember { mutableStateOf<Offset?>(null) }
-    var vowMenuFor by remember { mutableStateOf<Orb?>(null) }
+    // Menu contextuel de l'appui long, ancré à l'endroit du geste.
     var soundMenuFor by remember { mutableStateOf<Orb?>(null) }
 
     // Sélecteur de morceau. OpenDocument et non GetContent : lui seul donne une autorisation
@@ -150,24 +148,14 @@ fun NenScreen(keywordViewModel: KeywordViewModel = viewModel()) {
         }
     }
 
-    // Vœu actuellement révélé. Il se rescelle tout seul : la révélation est une exception,
-    // pas un état dans lequel on s'installe.
-    var revealedVowId by remember { mutableStateOf<Long?>(null) }
-    LaunchedEffect(revealedVowId) {
-        if (revealedVowId != null) {
-            delay(REVEAL_DURATION_MS)
-            revealedVowId = null
-        }
-    }
-
     // BiometricPrompt s'accroche à l'activité hôte, pas au contexte Compose.
     val hostActivity = context as? FragmentActivity
 
-    fun requestReveal(vowId: Long) {
+    fun requestSermentAccess() {
         val activity = hostActivity ?: return
         VowUnlock.prompt(
             activity = activity,
-            onSuccess = { revealedVowId = vowId },
+            onSuccess = { showSermentDialog = true },
             onUnavailable = { message ->
                 Toast.makeText(context, "Déverrouillage impossible : $message", Toast.LENGTH_LONG)
                     .show()
@@ -265,7 +253,7 @@ fun NenScreen(keywordViewModel: KeywordViewModel = viewModel()) {
     }
 
     val engine = remember { OrbEngine() }
-    val specs = remember(keywords, faults, density) {
+    val specs = remember(faults, density) {
         buildList {
             add(spec("ten", OrbKind.Ten, TEN_BOX, density.density))
             add(spec("pomodoro", OrbKind.Pomodoro, POMODORO_BOX, density.density))
@@ -273,9 +261,7 @@ fun NenScreen(keywordViewModel: KeywordViewModel = viewModel()) {
             faults.forEach { fault ->
                 add(spec("fault:${fault.name}", OrbKind.Fault(fault), FAULT_BOX, density.density))
             }
-            keywords.take(MAX_VOW_ORBS).forEach { vow ->
-                add(spec("vow:${vow.id}", OrbKind.Vow(vow.id), VOW_BOX, density.density))
-            }
+            add(spec("serment", OrbKind.Serment, SERMENT_BOX, density.density))
         }
     }
 
@@ -295,14 +281,12 @@ fun NenScreen(keywordViewModel: KeywordViewModel = viewModel()) {
             tenActive = isProtected,
             pomodoroActive = pomodoro.running && !pomodoro.paused,
             soundPlaying = soundPlaying,
-            revealedVowId = revealedVowId,
-            revealedKeyword = keywords.firstOrNull { it.id == revealedVowId }?.keyword,
             onTap = { orb ->
                 when (val kind = orb.kind) {
                     is OrbKind.Ten -> toggleProtection()
                     is OrbKind.Pomodoro -> showPomodoro = true
                     is OrbKind.Fault -> shownFault = kind.fault
-                    is OrbKind.Vow -> requestReveal(kind.id)
+                    is OrbKind.Serment -> requestSermentAccess()
                     is OrbKind.Sound -> when {
                         soundPlaying -> AmbienceService.send(context, AmbienceService.ACTION_STOP)
                         AmbiencePrefs.trackUri(context) == null -> trackPicker.launch(AUDIO_MIME)
@@ -312,45 +296,15 @@ fun NenScreen(keywordViewModel: KeywordViewModel = viewModel()) {
             },
             onLongPressOrb = { orb ->
                 when (orb.kind) {
-                    is OrbKind.Vow -> vowMenuFor = orb
                     is OrbKind.Sound -> soundMenuFor = orb
                     else -> Unit
                 }
             },
-            onLongPressBackground = { position -> sealMenuAt = position }
+            onLongPressBackground = {}
         )
 
         // Les menus n'ont pas d'élément d'interface auquel s'accrocher : on ancre une boîte
         // de taille nulle à l'endroit exact du geste.
-        sealMenuAt?.let { position ->
-            MenuAnchor(position) {
-                DropdownMenu(expanded = true, onDismissRequest = { sealMenuAt = null }) {
-                    DropdownMenuItem(
-                        text = { Text("Sceller un vœu") },
-                        onClick = {
-                            sealMenuAt = null
-                            showSealDialog = true
-                        }
-                    )
-                }
-            }
-        }
-
-        vowMenuFor?.let { orb ->
-            MenuAnchor(Offset(orb.x, orb.y)) {
-                DropdownMenu(expanded = true, onDismissRequest = { vowMenuFor = null }) {
-                    DropdownMenuItem(
-                        text = { Text("Supprimer", color = MaterialTheme.colorScheme.error) },
-                        onClick = {
-                            val id = (orb.kind as OrbKind.Vow).id
-                            vowMenuFor = null
-                            keywords.firstOrNull { it.id == id }?.let(keywordViewModel::remove)
-                        }
-                    )
-                }
-            }
-        }
-
         soundMenuFor?.let { orb ->
             MenuAnchor(Offset(orb.x, orb.y)) {
                 DropdownMenu(expanded = true, onDismissRequest = { soundMenuFor = null }) {
@@ -385,13 +339,12 @@ fun NenScreen(keywordViewModel: KeywordViewModel = viewModel()) {
         }
     }
 
-    if (showSealDialog) {
-        SealVowDialog(
-            onDismiss = { showSealDialog = false },
-            onSeal = { keyword ->
-                keywordViewModel.add(keyword)
-                showSealDialog = false
-            }
+    if (showSermentDialog) {
+        SermentDialog(
+            keywords = keywords,
+            onAdd = keywordViewModel::add,
+            onRemove = keywordViewModel::remove,
+            onDismiss = { showSermentDialog = false }
         )
     }
 
@@ -588,17 +541,7 @@ private val TEN_BOX = 52.dp
 private val POMODORO_BOX = 31.dp
 private val SOUND_BOX = 31.dp
 private val FAULT_BOX = 29.dp
-private val VOW_BOX = 31.dp
-
-/**
- * Après un import de liste hosts, la base peut compter des dizaines de milliers d'entrées :
- * on ne fait flotter que les premières. Au-delà, ni l'écran ni la boucle de collisions ne
- * suivraient.
- */
-private const val MAX_VOW_ORBS = 40
-
-/** Durée d'une révélation avant que le vœu ne se rescelle. */
-private const val REVEAL_DURATION_MS = 10_000L
+private val SERMENT_BOX = 34.dp
 
 /**
  * Indique si le service d'accessibilité de Nen est actuellement activé par l'utilisateur.

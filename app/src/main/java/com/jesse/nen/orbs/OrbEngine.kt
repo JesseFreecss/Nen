@@ -25,8 +25,8 @@ sealed interface OrbKind {
     /** Un réglage manquant qui fragilise la protection. Disparaît une fois réglé. */
     data class Fault(val fault: FaultKind) : OrbKind
 
-    /** Un vœu scellé. */
-    data class Vow(val id: Long) : OrbKind
+    /** Le Serment de Nen : tous les mots bloqués, réunis dans une orbe unique. */
+    data object Serment : OrbKind
 }
 
 enum class FaultKind { ACCESSIBILITY_OFF, ACCESSIBILITY_DEAD, BATTERY }

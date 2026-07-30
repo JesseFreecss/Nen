@@ -9,7 +9,7 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 
 /**
- * Déverrouillage d'un vœu scellé par empreinte digitale.
+ * Déverrouillage du Serment de Nen (la liste des mots bloqués) par empreinte digitale.
  *
  * Repli sur le code de déverrouillage du téléphone si aucune empreinte n'est enregistrée :
  * sans lui, un utilisateur sans capteur ou sans empreinte configurée ne pourrait plus jamais
@@ -54,8 +54,8 @@ object VowUnlock {
 
         val info = if (biometricsReady(activity)) {
             BiometricPrompt.PromptInfo.Builder()
-                .setTitle("Sceau du grimoire")
-                .setSubtitle("Pose ton doigt pour révéler ce vœu")
+                .setTitle("Serment de Nen")
+                .setSubtitle("Pose ton doigt pour gérer les mots bloqués")
                 .setNegativeButtonText("Annuler")
                 .setAllowedAuthenticators(Authenticators.BIOMETRIC_STRONG)
                 .build()
@@ -63,8 +63,8 @@ object VowUnlock {
             // Sans empreinte utilisable, on demande le code de l'appareil. Le bouton négatif
             // est interdit avec DEVICE_CREDENTIAL, l'invite système gère elle-même l'abandon.
             BiometricPrompt.PromptInfo.Builder()
-                .setTitle("Sceau du grimoire")
-                .setSubtitle("Déverrouille pour révéler ce vœu")
+                .setTitle("Serment de Nen")
+                .setSubtitle("Déverrouille pour gérer les mots bloqués")
                 .apply {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         setAllowedAuthenticators(Authenticators.DEVICE_CREDENTIAL)
