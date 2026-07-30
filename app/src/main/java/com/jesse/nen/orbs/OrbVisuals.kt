@@ -13,24 +13,25 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.jesse.nen.ui.rememberElapsedMillis
+import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
 
-// Toutes les orbes parlent la langue du fond : un cœur sombre, presque transparent, cerné de
-// filaments de lumière très fins qui se croisent en boucles désaxées. Ce qui les distingue
-// n'est plus la matière mais la teinte et le rythme.
+// Toutes les orbes parlent la langue du fond : un cœur noir, presque transparent, cerné d'UN
+// anneau fin et lumineux, lui-même enveloppé d'une volute douce façon petite nébuleuse — jamais
+// plusieurs boucles qui s'entrecroisent. Ce qui les distingue n'est plus le nombre de fils mais
+// la teinte et le rythme.
 
 /**
- * L'orbe du Ten. Trois boucles iridescentes — blanc, vert d'eau, violet — qui tournent à des
- * vitesses différentes autour d'un cœur vide.
- *
- * Protection active : les filaments brûlent et tournent vite. Protection coupée : ils
- * s'assombrissent et ralentissent, sans jamais s'éteindre tout à fait.
+ * L'orbe du Ten. Un anneau qui glisse du cyan au violet, comme un reflet du grand anneau du
+ * fond. Protection active : il brûle et tourne vite. Protection coupée : il s'assombrit et
+ * ralentit, sans jamais s'éteindre tout à fait.
  */
 @Composable
 fun TenOrb(
@@ -52,35 +53,23 @@ fun TenOrb(
         val radius = min(size.width, size.height) / 2f * 0.60f
         val intensity = if (active) 1f else 0.42f
         val breath = (sin(elapsed / (if (active) 780f else 1600f)) + 1f) / 2f
-        val spin = elapsed * (if (active) 0.030f else 0.009f)
+        val spin = elapsed * (if (active) 0.032f else 0.010f)
+        val hue = (sin(elapsed / 2600f) + 1f) / 2f
+        val hot = lerp(IRIS_CYAN, IRIS_VIOLET, hue)
+        val cool = lerp(IRIS_BLUE, IRIS_ROSE, hue)
 
-        drawBloom(center, radius, IRIS_CYAN, IRIS_VIOLET, (0.32f + breath * 0.16f) * intensity)
-        drawCore(center, radius, IRIS_BLUE, 0.14f * intensity)
-
-        // Boucles presque circulaires et de rayons voisins : elles se recouvrent en une seule
-        // écharpe de lumière aux franges colorées, comme l'anneau du fond. Des ellipses
-        // franches donneraient un globe filaire.
-        drawLoop(
-            center, radius * 0.96f, flatten = 0.99f, rotation = spin,
-            width = radius * 0.075f, hot = Color.White, cool = IRIS_CYAN,
-            alpha = (0.96f + breath * 0.04f) * intensity
-        )
-        drawLoop(
-            center, radius * 0.92f, flatten = 0.94f, rotation = -spin * 1.37f + 42f,
-            width = radius * 0.055f, hot = IRIS_MINT, cool = IRIS_VIOLET,
-            alpha = 0.86f * intensity
-        )
-        drawLoop(
-            center, radius * 0.89f, flatten = 0.90f, rotation = spin * 0.71f + 112f,
-            width = radius * 0.045f, hot = IRIS_ROSE, cool = IRIS_BLUE,
-            alpha = 0.66f * intensity
+        drawNebulaHalo(center, radius, hot, (0.42f + breath * 0.14f) * intensity, elapsed)
+        drawRing(
+            center, radius * 0.92f, width = radius * 0.10f,
+            hot = Color.White, cool = hot, alpha = (0.92f + breath * 0.08f) * intensity,
+            rotationDeg = spin
         )
     }
 }
 
 /**
- * L'orbe du Pomodoro. Deux boucles blanches, et un cœur qui reste lumineux : c'est l'orbe
- * blanche, elle doit se reconnaître à sa clarté même redessinée en filaments.
+ * L'orbe du Pomodoro : anneau blanc chaud, presque sans teinte — elle doit se reconnaître à sa
+ * clarté, seule orbe sans couleur propre.
  */
 @Composable
 fun PomodoroOrb(
@@ -98,28 +87,20 @@ fun PomodoroOrb(
         val center = Offset(size.width / 2f, size.height / 2f)
         val radius = min(size.width, size.height) / 2f * 0.60f
         val breath = (sin(elapsed / (if (active) 700f else 1500f)) + 1f) / 2f
-        val spin = elapsed * (if (active) 0.048f else 0.016f)
+        val spin = elapsed * (if (active) 0.050f else 0.017f)
 
-        drawBloom(center, radius, WHITE_WARM, WHITE_COOL, 0.38f + breath * 0.18f)
-        drawCore(center, radius, WHITE_WARM, 0.44f + breath * 0.14f)
-
-        drawLoop(
-            center, radius * 0.96f, flatten = 0.98f, rotation = spin,
-            width = radius * 0.070f, hot = Color.White, cool = WHITE_COOL,
-            alpha = 0.98f
-        )
-        drawLoop(
-            center, radius * 0.91f, flatten = 0.92f, rotation = -spin * 1.42f + 64f,
-            width = radius * 0.048f, hot = Color.White, cool = WHITE_WARM,
-            alpha = 0.76f
+        drawNebulaHalo(center, radius, WHITE_WARM, 0.40f + breath * 0.16f, elapsed)
+        drawRing(
+            center, radius * 0.92f, width = radius * 0.085f,
+            hot = Color.White, cool = WHITE_COOL, alpha = 0.95f,
+            rotationDeg = spin
         )
     }
 }
 
 /**
- * L'orbe de l'ambiance sonore. Ambre chaud — la seule teinte tiède du champ, elle ne peut se
- * confondre avec aucune autre. Ses boucles s'écartent et se resserrent au repos comme au
- * rythme d'une respiration ; en lecture, elles battent plus large et plus vite.
+ * L'orbe de l'ambiance sonore. Ambre chaud — la seule teinte tiède du champ. L'anneau respire :
+ * il s'écarte et se resserre au repos, plus large et plus vite en lecture.
  */
 @Composable
 fun SoundOrb(
@@ -141,30 +122,21 @@ fun SoundOrb(
         val radius = min(size.width, size.height) / 2f * 0.60f
         val intensity = if (playing) 1f else 0.54f
         val wave = (sin(elapsed / (if (playing) 520f else 1400f)) + 1f) / 2f
-        val spin = elapsed * (if (playing) 0.040f else 0.012f)
+        val spin = elapsed * (if (playing) 0.042f else 0.013f)
 
-        drawBloom(center, radius, AMBER_HOT, AMBER_DEEP, (0.34f + wave * 0.20f) * intensity)
-        drawCore(center, radius, AMBER, 0.16f * intensity)
-
-        // Les deux boucles s'écartent en opposition de phase : l'orbe semble pulser au son.
-        drawLoop(
-            center, radius * (0.92f + wave * 0.07f), flatten = 0.98f, rotation = spin,
-            width = radius * 0.075f, hot = AMBER_HOT, cool = AMBER,
-            alpha = (0.94f + wave * 0.06f) * intensity
-        )
-        drawLoop(
-            center, radius * (0.94f - wave * 0.07f), flatten = 0.93f,
-            rotation = -spin * 1.4f + 52f,
-            width = radius * 0.05f, hot = AMBER, cool = AMBER_DEEP,
-            alpha = 0.76f * intensity
+        drawNebulaHalo(center, radius, AMBER_HOT, (0.40f + wave * 0.18f) * intensity, elapsed)
+        drawRing(
+            center, radius * (0.90f + wave * 0.07f), width = radius * 0.085f,
+            hot = AMBER_HOT, cool = AMBER_DEEP, alpha = (0.92f + wave * 0.08f) * intensity,
+            rotationDeg = spin
         )
     }
 }
 
 /**
- * L'orbe d'une faille : un réglage manque et fragilise la protection. Mêmes filaments, mais
- * rouges et au battement nerveux — elle attire l'œil sans hurler, et disparaît d'elle-même
- * une fois le réglage fait.
+ * L'orbe d'une faille : un réglage manque et fragilise la protection. Même anneau, mais rouge
+ * et au battement nerveux — elle attire l'œil sans hurler, et disparaît d'elle-même une fois le
+ * réglage fait.
  */
 @Composable
 fun FaultOrb(
@@ -183,41 +155,69 @@ fun FaultOrb(
         // Deux battements par cycle, comme un pouls.
         val pulse = (sin(elapsed / 300f) + 1f) / 2f
         val beat = pulse * pulse
-        val spin = elapsed * 0.022f
+        val spin = elapsed * 0.024f
 
-        drawBloom(center, radius, DANGER_HOT, DANGER_DEEP, 0.34f + beat * 0.24f)
-        drawCore(center, radius, DANGER, 0.18f + beat * 0.12f)
-
-        drawLoop(
-            center, radius * 0.96f, flatten = 0.98f, rotation = spin,
-            width = radius * 0.080f, hot = DANGER_HOT, cool = DANGER,
-            alpha = 0.86f + beat * 0.14f
-        )
-        drawLoop(
-            center, radius * 0.90f, flatten = 0.93f, rotation = -spin * 1.5f + 38f,
-            width = radius * 0.05f, hot = DANGER, cool = DANGER_DEEP,
-            alpha = 0.62f + beat * 0.18f
+        drawNebulaHalo(center, radius, DANGER_HOT, 0.36f + beat * 0.26f, elapsed)
+        drawRing(
+            center, radius * 0.94f, width = radius * 0.09f,
+            hot = DANGER_HOT, cool = DANGER_DEEP, alpha = 0.84f + beat * 0.16f,
+            rotationDeg = spin
         )
     }
 }
 
 /**
- * La floraison autour de l'orbe. Elle culmine à la surface et s'éteint avant le bord de la
- * boîte — le halo ne doit jamais atteindre l'arête, sous peine d'y être tranché au carré.
+ * Le Serment de Nen : l'orbe noire qui réunit tous les mots bloqués. Une seule orbe, jamais une
+ * par mot — le tap (après empreinte) ouvre la liste où en ajouter et en retirer.
+ *
+ * Sa volute est presque noire (la même encre que le fond), et son anneau reprend le bleu
+ * glacé du Ten sans jamais en emprunter les teintes chaudes : c'est l'orbe la plus sobre du
+ * champ, celle qui se fond le plus dans le vide qui l'entoure.
  */
-private fun DrawScope.drawBloom(
+@Composable
+fun SermentOrb(
+    modifier: Modifier = Modifier,
+    diameter: Dp = 34.dp
+) {
+    val elapsed = rememberElapsedMillis()
+
+    Canvas(
+        modifier = modifier
+            .size(diameter)
+            .semantics { contentDescription = "Serment de Nen, toucher pour gérer les mots bloqués" }
+    ) {
+        val center = Offset(size.width / 2f, size.height / 2f)
+        val radius = min(size.width, size.height) / 2f * 0.60f
+        val breath = (sin(elapsed / 2200f) + 1f) / 2f
+        val spin = elapsed * 0.012f
+
+        drawNebulaHalo(center, radius, VOID_INDIGO, 0.30f + breath * 0.10f, elapsed)
+        drawRing(
+            center, radius * 0.92f, width = radius * 0.075f,
+            hot = ICE_WHITE, cool = IRIS_BLUE, alpha = 0.80f + breath * 0.10f,
+            rotationDeg = spin
+        )
+    }
+}
+
+/**
+ * La volute autour de l'orbe : un halo doux, cassé en trois foyers qui dérivent lentement
+ * autour du centre pour rompre la symétrie parfaite d'un dégradé radial seul — c'est ce
+ * décalage qui le fait lire comme une petite nébuleuse plutôt que comme un disque flou.
+ * Elle culmine bien avant le bord de la boîte, pour ne jamais y être tranchée au carré.
+ */
+private fun DrawScope.drawNebulaHalo(
     center: Offset,
     radius: Float,
-    inner: Color,
-    outer: Color,
-    alpha: Float
+    color: Color,
+    alpha: Float,
+    elapsedMs: Float
 ) {
-    val bloomRadius = radius * 1.62f
+    val bloomRadius = radius * 1.7f
     drawCircle(
         brush = Brush.radialGradient(
-            0.00f to inner.copy(alpha = alpha * 0.35f),
-            0.58f to inner.copy(alpha = alpha),
-            0.78f to outer.copy(alpha = alpha * 0.55f),
+            0.00f to color.copy(alpha = alpha * 0.10f),
+            0.55f to color.copy(alpha = alpha * 0.34f),
             1.00f to Color.Transparent,
             center = center,
             radius = bloomRadius
@@ -226,60 +226,55 @@ private fun DrawScope.drawBloom(
         center = center,
         blendMode = BlendMode.Plus
     )
-}
 
-/**
- * Le cœur. Volontairement très faible : l'orbe doit laisser deviner le fond au travers, comme
- * la sphère noire de l'anneau laisse voir le vide.
- */
-private fun DrawScope.drawCore(center: Offset, radius: Float, color: Color, alpha: Float) {
-    drawCircle(
-        brush = Brush.radialGradient(
-            0.00f to color.copy(alpha = alpha),
-            0.70f to color.copy(alpha = alpha * 0.45f),
-            1.00f to Color.Transparent,
-            center = center,
-            radius = radius * 0.92f
-        ),
-        radius = radius * 0.92f,
-        center = center,
-        blendMode = BlendMode.Plus
-    )
-}
-
-/**
- * Une boucle de filament. [flatten] l'aplatit en ellipse, ce qui la fait lire comme un cercle
- * vu de biais : c'est le croisement de plusieurs boucles d'inclinaisons différentes qui donne
- * sa profondeur à l'anneau du fond.
- *
- * Le dégradé circulaire fait courir des points chauds le long du fil ; il tourne avec la
- * boucle, si bien que la lumière semble circuler dedans.
- */
-private fun DrawScope.drawLoop(
-    center: Offset,
-    radius: Float,
-    flatten: Float,
-    rotation: Float,
-    width: Float,
-    hot: Color,
-    cool: Color,
-    alpha: Float
-) {
-    val rx = radius
-    val ry = radius * flatten
-    rotate(degrees = rotation, pivot = center) {
-        // Deux passes : un trait large et pâle qui fait office de diffusion, puis le fil net
-        // par-dessus. Un trait seul donnerait un cercle de dessin technique, là où le fond
-        // montre des fils noyés dans leur propre lumière.
-        loopPass(center, rx, ry, width * 3.4f, hot, cool, alpha * 0.20f)
-        loopPass(center, rx, ry, width, hot, cool, alpha)
+    val wisps = 3
+    val driftRadius = radius * 0.5f
+    val wispRadius = radius * 0.95f
+    for (i in 0 until wisps) {
+        val angleDeg = elapsedMs * 0.006f + i * (360f / wisps)
+        val angleRad = Math.toRadians(angleDeg.toDouble())
+        val wispCenter = Offset(
+            center.x + (cos(angleRad) * driftRadius).toFloat(),
+            center.y + (sin(angleRad) * driftRadius).toFloat()
+        )
+        drawCircle(
+            brush = Brush.radialGradient(
+                0.00f to color.copy(alpha = alpha * 0.20f),
+                1.00f to Color.Transparent,
+                center = wispCenter,
+                radius = wispRadius
+            ),
+            radius = wispRadius,
+            center = wispCenter,
+            blendMode = BlendMode.Plus
+        )
     }
 }
 
-private fun DrawScope.loopPass(
+/**
+ * L'anneau : un cercle unique (jamais une ellipse ni plusieurs boucles croisées), avec un
+ * point chaud qui glisse le long du fil. Deux passes, comme avant : un trait large et pâle en
+ * diffusion, puis le fil net par-dessus, pour qu'il se lise comme noyé dans sa propre lumière
+ * plutôt que comme un cercle de dessin technique.
+ */
+private fun DrawScope.drawRing(
     center: Offset,
-    rx: Float,
-    ry: Float,
+    radius: Float,
+    width: Float,
+    hot: Color,
+    cool: Color,
+    alpha: Float,
+    rotationDeg: Float
+) {
+    rotate(degrees = rotationDeg, pivot = center) {
+        ringPass(center, radius, width * 3.2f, hot, cool, alpha * 0.20f)
+        ringPass(center, radius, width, hot, cool, alpha)
+    }
+}
+
+private fun DrawScope.ringPass(
+    center: Offset,
+    radius: Float,
     width: Float,
     hot: Color,
     cool: Color,
@@ -287,27 +282,26 @@ private fun DrawScope.loopPass(
 ) {
     drawArc(
         brush = Brush.sweepGradient(
-            0.00f to cool.copy(alpha = alpha * 0.12f),
+            0.00f to cool.copy(alpha = alpha * 0.14f),
             0.16f to hot.copy(alpha = alpha),
-            0.34f to cool.copy(alpha = alpha * 0.30f),
-            0.55f to hot.copy(alpha = alpha * 0.78f),
-            0.72f to cool.copy(alpha = alpha * 0.18f),
-            0.88f to hot.copy(alpha = alpha * 0.52f),
-            1.00f to cool.copy(alpha = alpha * 0.12f),
+            0.34f to cool.copy(alpha = alpha * 0.32f),
+            0.55f to hot.copy(alpha = alpha * 0.80f),
+            0.72f to cool.copy(alpha = alpha * 0.20f),
+            0.88f to hot.copy(alpha = alpha * 0.55f),
+            1.00f to cool.copy(alpha = alpha * 0.14f),
             center = center
         ),
         startAngle = 0f,
         sweepAngle = 360f,
         useCenter = false,
-        topLeft = Offset(center.x - rx, center.y - ry),
-        size = Size(rx * 2f, ry * 2f),
+        topLeft = Offset(center.x - radius, center.y - radius),
+        size = Size(radius * 2f, radius * 2f),
         style = Stroke(width = width, cap = StrokeCap.Round),
         blendMode = BlendMode.Plus
     )
 }
 
 private val IRIS_CYAN = Color(0xFF7FE9F5)
-private val IRIS_MINT = Color(0xFF9BF3CE)
 private val IRIS_VIOLET = Color(0xFFB08CFF)
 private val IRIS_BLUE = Color(0xFF6E8BFF)
 private val IRIS_ROSE = Color(0xFFEFA7E6)
@@ -316,9 +310,10 @@ private val WHITE_WARM = Color(0xFFF3F6FF)
 private val WHITE_COOL = Color(0xFFBFD4FF)
 
 private val AMBER_HOT = Color(0xFFFFE0A8)
-private val AMBER = Color(0xFFFFC46B)
 private val AMBER_DEEP = Color(0xFF9A5A1E)
 
 private val DANGER_HOT = Color(0xFFFF9AA6)
-private val DANGER = Color(0xFFCF6679)
 private val DANGER_DEEP = Color(0xFF7A2233)
+
+private val ICE_WHITE = Color(0xFFE6EEFF)
+private val VOID_INDIGO = Color(0xFF141033)
