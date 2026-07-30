@@ -61,6 +61,7 @@ fun OrbField(
     val currentLongBackground by rememberUpdatedState(onLongPressBackground)
 
     var fieldSize by remember { mutableStateOf(IntSize.Zero) }
+    val stardust = remember { StardustTrail() }
 
     Box(
         modifier = modifier
@@ -101,7 +102,16 @@ fun OrbField(
                         return@awaitEachGesture
                     }
 
-                    if (orb == null) return@awaitEachGesture
+                    if (orb == null) {
+                        // Glissement sur le fond, sans orbe saisie : c'est là, et seulement
+                        // là, que la poussière d'étoile suit le doigt.
+                        stardust.spawn(dragStart.position.x, dragStart.position.y, System.currentTimeMillis())
+                        drag(dragStart.id) { change ->
+                            stardust.spawn(change.position.x, change.position.y, System.currentTimeMillis())
+                            change.consume()
+                        }
+                        return@awaitEachGesture
+                    }
 
                     // L'orbe garde la prise là où le doigt l'a saisie, au lieu de sauter pour
                     // se centrer dessous.
@@ -139,6 +149,10 @@ fun OrbField(
                 }
             }
         }
+
+        // Sous les orbes : la traînée ne doit jamais passer par-dessus celle qu'on est en
+        // train de traîner.
+        StardustLayer(stardust)
 
         engine.orbs.forEach { orb ->
             key(orb.key) {
