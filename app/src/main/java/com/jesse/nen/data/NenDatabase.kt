@@ -10,17 +10,19 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 /**
  * Point d'entrée de la base Room. Liste les entités (tables) et expose les DAO.
  *
- * version = 2 : ajout d'un index UNIQUE sur `keyword` (voir MIGRATION_1_2).
+ * version = 3 : ajout de la table `ambience_tracks`, la bibliothèque de morceaux
+ * d'ambiance (voir MIGRATION_2_3).
  * exportSchema = false : on ne génère pas le fichier de schéma JSON (pas utile ici).
  */
 @Database(
-    entities = [BlockedKeyword::class],
-    version = 2,
+    entities = [BlockedKeyword::class, AmbienceTrack::class],
+    version = 3,
     exportSchema = false
 )
 abstract class NenDatabase : RoomDatabase() {
 
     abstract fun blockedKeywordDao(): BlockedKeywordDao
+    abstract fun ambienceTrackDao(): AmbienceTrackDao
 
     companion object {
         // @Volatile : garantit que tous les threads voient la même instance à jour.
@@ -46,6 +48,19 @@ abstract class NenDatabase : RoomDatabase() {
             }
         }
 
+        /** Migration v2 -> v3 : crée la table de bibliothèque de morceaux d'ambiance. */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS ambience_tracks (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "uri TEXT NOT NULL, " +
+                        "display_name TEXT NOT NULL, " +
+                        "added_at INTEGER NOT NULL)"
+                )
+            }
+        }
+
         /**
          * Renvoie l'unique instance de la base (patron Singleton), en la créant au besoin.
          * Une seule connexion SQLite partagée par l'app (UI + VpnService).
@@ -57,7 +72,7 @@ abstract class NenDatabase : RoomDatabase() {
                     NenDatabase::class.java,
                     "nen.db"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build().also { INSTANCE = it }
             }
     }
