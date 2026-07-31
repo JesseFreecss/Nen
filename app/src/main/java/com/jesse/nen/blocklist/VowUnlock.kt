@@ -25,9 +25,15 @@ object VowUnlock {
     /**
      * Demande une authentification. [onSuccess] n'est appelé que sur succès avéré ; une
      * annulation ou un échec laisse le vœu scellé.
+     *
+     * [title] et [subtitle] adaptent le texte de l'invite à ce qui est réellement déverrouillé
+     * (gérer les mots bloqués, désactiver la protection…) — le reste du flux ne change pas.
      */
     fun prompt(
         activity: FragmentActivity,
+        title: CharSequence = "Serment de Nen",
+        subtitle: CharSequence = "Pose ton doigt pour gérer les mots bloqués",
+        deviceCredentialSubtitle: CharSequence = "Déverrouille pour gérer les mots bloqués",
         onSuccess: () -> Unit,
         onUnavailable: (CharSequence) -> Unit
     ) {
@@ -54,8 +60,8 @@ object VowUnlock {
 
         val info = if (biometricsReady(activity)) {
             BiometricPrompt.PromptInfo.Builder()
-                .setTitle("Serment de Nen")
-                .setSubtitle("Pose ton doigt pour gérer les mots bloqués")
+                .setTitle(title)
+                .setSubtitle(subtitle)
                 .setNegativeButtonText("Annuler")
                 .setAllowedAuthenticators(Authenticators.BIOMETRIC_STRONG)
                 .build()
@@ -63,8 +69,8 @@ object VowUnlock {
             // Sans empreinte utilisable, on demande le code de l'appareil. Le bouton négatif
             // est interdit avec DEVICE_CREDENTIAL, l'invite système gère elle-même l'abandon.
             BiometricPrompt.PromptInfo.Builder()
-                .setTitle("Serment de Nen")
-                .setSubtitle("Déverrouille pour gérer les mots bloqués")
+                .setTitle(title)
+                .setSubtitle(deviceCredentialSubtitle)
                 .apply {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         setAllowedAuthenticators(Authenticators.DEVICE_CREDENTIAL)

@@ -208,15 +208,20 @@ fun NenScreen(keywordViewModel: KeywordViewModel = viewModel()) {
         ActivityResultContracts.RequestPermission()
     ) { /* accordée ou non : le service fonctionne dans les deux cas */ }
 
-    // Reprise après un arrêt subi : si l'utilisateur avait laissé la protection active mais
-    // que le VPN ne tourne pas (service tué par le système), on le remonte dès l'ouverture.
-    // Sans autorisation VPN encore valide on ne fait rien : ce serait ouvrir une boîte de
-    // dialogue sans que l'utilisateur ait rien demandé.
+    // Protection voulue mais pas en cours : soit une reprise après un arrêt subi
+    // (l'utilisateur avait laissé la protection active mais le VPN ne tourne pas — service
+    // tué par le système), soit une toute première ouverture (ProtectionPrefs.isEnabled est
+    // vraie par défaut). Dans les deux cas on la remonte dès l'ouverture ; sans autorisation
+    // VPN encore valide, on déclenche nous-mêmes la boîte système au lieu d'attendre que
+    // l'utilisateur pense à taper sur l'orbe Ten.
     LaunchedEffect(isProtected) {
-        if (!isProtected && ProtectionPrefs.isEnabled(context) &&
-            VpnService.prepare(context) == null
-        ) {
-            NenVpnService.start(context)
+        if (!isProtected && ProtectionPrefs.isEnabled(context)) {
+            val prepareIntent = VpnService.prepare(context)
+            if (prepareIntent == null) {
+                NenVpnService.start(context)
+            } else {
+                vpnPermissionLauncher.launch(prepareIntent)
+            }
         }
     }
 
@@ -231,9 +236,27 @@ fun NenScreen(keywordViewModel: KeywordViewModel = viewModel()) {
         }
     }
 
+    // La protection est activée par défaut et volontairement difficile à couper : un tap sur
+    // l'orbe Ten pendant qu'elle tourne ne fait qu'ouvrir l'invite d'empreinte, jamais l'arrêt
+    // direct — sans quoi n'importe qui pourrait la désactiver d'un geste.
+    fun requestDisableProtection() {
+        val activity = hostActivity ?: return
+        VowUnlock.prompt(
+            activity = activity,
+            title = "Protection Nen",
+            subtitle = "Pose ton doigt pour désactiver la protection",
+            deviceCredentialSubtitle = "Déverrouille pour désactiver la protection",
+            onSuccess = { NenVpnService.stop(context) },
+            onUnavailable = { message ->
+                Toast.makeText(context, "Déverrouillage impossible : $message", Toast.LENGTH_LONG)
+                    .show()
+            }
+        )
+    }
+
     fun toggleProtection() {
         if (isProtected) {
-            NenVpnService.stop(context)
+            requestDisableProtection()
         } else {
             // prepare() renvoie un Intent si l'autorisation VPN n'a pas encore été donnée.
             val prepareIntent: Intent? = VpnService.prepare(context)
