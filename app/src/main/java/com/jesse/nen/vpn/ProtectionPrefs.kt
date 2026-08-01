@@ -34,8 +34,11 @@ object ProtectionPrefs {
         editor.apply()
     }
 
+    // Défaut à `true` : sur une installation fraîche (clé absente), la protection est
+    // considérée voulue sans que l'utilisateur ait eu à l'activer — voir MainActivity, qui
+    // demande alors l'autorisation VPN dès l'entrée dans l'app plutôt que d'attendre un tap.
     fun isEnabled(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_ENABLED, false)
+        prefs(context).getBoolean(KEY_ENABLED, true)
 
     /**
      * Instant où l'utilisateur a activé la protection, ou 0 s'il l'a arrêtée.
