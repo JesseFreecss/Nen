@@ -17,3 +17,6 @@
 # Clés de signature (ne JAMAIS committer)
 *.jks
 *.keystore
+
+# Réglages Claude Code locaux (spécifiques à cette machine/ce téléphone de test)
+.claude/settings.local.json
