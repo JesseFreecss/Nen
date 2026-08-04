@@ -13,6 +13,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Path
@@ -212,12 +214,13 @@ fun SermentOrb(
 }
 
 /**
- * Budgets quotidiens des vidéos courtes (Reels Instagram, Shorts YouTube) : sobre comme le
- * Serment, mais franchement noire là où le Serment reste indigo/glacé — sans quoi les deux se
- * confondraient. Réutilise la même texture violette faute d'alternative dédiée, mais avec un
- * `alphaScale` très réduit qui étouffe sa teinte propre (le violet n'apparaît qu'en fond très
- * discret) ; l'anneau passe au gris graphite plutôt qu'au bleu glacé du Serment, seul élément
- * qui reste net.
+ * Budgets quotidiens des vidéos courtes (Reels Instagram, Shorts YouTube) : même intensité
+ * lumineuse que l'orbe du Ten (anneau blanc pur, alphaScale plein, halo diffusé en `washColor`),
+ * mais entièrement monochrome — le halo est blanc plutôt que cyan/violet, et la texture violette
+ * réutilisée est désaturée à la volée ([HairyOrb] avec `desaturateTexture = true`) — pour rester
+ * distincte au premier coup d'œil tout en étant tout aussi brillante. Un `washColor` noir serait
+ * un no-op avec le `BlendMode.Plus` de [drawWash] : sans halo blanc, l'orbe perd tout rayonnement
+ * visible malgré un anneau net.
  */
 @Composable
 fun ShortFormOrb(
@@ -235,13 +238,17 @@ fun ShortFormOrb(
         diameter = diameter,
         textureRes = R.drawable.orb_violet,
         seed = 6,
-        washColor = Color.Black,
-        ringHot = GRAPHITE_LIGHT,
+        washColor = Color.White,
+        ringHot = Color.White,
         ringCool = GRAPHITE_DARK,
-        alphaScale = 0.40f,
+        alphaScale = 1f,
         spinDeg = spin,
-        ringAlpha = 0.80f + breath * 0.10f,
-        washAlpha = 0.22f + breath * 0.08f
+        ringAlpha = 0.92f + breath * 0.08f,
+        washAlpha = 0.42f + breath * 0.14f,
+        // Seule orbe entièrement monochrome : la texture violette réutilisée est désaturée
+        // à la volée pour ne garder que la luminosité du cocon (noir/blanc/gris), sans quoi
+        // sa teinte propre transparaîtrait malgré l'alphaScale réduit.
+        desaturateTexture = true
     )
 }
 
@@ -269,9 +276,11 @@ private fun HairyOrb(
     ringAlpha: Float,
     washAlpha: Float,
     modifier: Modifier = Modifier,
-    ringRadiusScale: Float = 0.92f
+    ringRadiusScale: Float = 0.92f,
+    desaturateTexture: Boolean = false
 ) {
     val texture = ImageBitmap.imageResource(textureRes)
+    val textureFilter = if (desaturateTexture) GRAYSCALE_FILTER else null
     val organicPhase = spinDeg * 0.72f
     // Rotation d'ensemble, plus lente que le glissement du point chaud sur l'anneau : l'orbe
     // tourne sur son propre axe pendant qu'elle dérive dans le champ (physique inchangée,
@@ -300,7 +309,8 @@ private fun HairyOrb(
                 innerRadius = innerRadius,
                 phase = organicPhase,
                 breath = breath,
-                alpha = alphaScale
+                alpha = alphaScale,
+                colorFilter = textureFilter
             )
             drawCore(center, innerRadius, ringCool, alphaScale, organicPhase)
 
@@ -325,7 +335,8 @@ private fun DrawScope.drawLivingTexture(
     innerRadius: Float,
     phase: Float,
     breath: Float,
-    alpha: Float
+    alpha: Float,
+    colorFilter: ColorFilter? = null
 ) {
     val destination = IntSize(size.width.roundToInt(), size.height.roundToInt())
     val outsideRing = Path().apply {
@@ -351,7 +362,8 @@ private fun DrawScope.drawLivingTexture(
             dstOffset = IntOffset.Zero,
             dstSize = destination,
             alpha = alpha,
-            blendMode = BlendMode.Screen
+            blendMode = BlendMode.Screen,
+            colorFilter = colorFilter
         )
     }
 
@@ -364,7 +376,8 @@ private fun DrawScope.drawLivingTexture(
                     dstOffset = IntOffset.Zero,
                     dstSize = destination,
                     alpha = 0.20f * alpha,
-                    blendMode = BlendMode.Screen
+                    blendMode = BlendMode.Screen,
+                    colorFilter = colorFilter
                 )
             }
         }
@@ -378,7 +391,8 @@ private fun DrawScope.drawLivingTexture(
                 dstOffset = IntOffset.Zero,
                 dstSize = destination,
                 alpha = 0.22f * alpha,
-                blendMode = BlendMode.Screen
+                blendMode = BlendMode.Screen,
+                colorFilter = colorFilter
             )
         }
     }
@@ -511,6 +525,9 @@ private const val GLINT_OFFSET_DEG = 130f
 /** Fraction de [spinDeg] appliquée à la rotation d'ensemble de l'orbe sur son propre axe. */
 private const val SELF_SPIN_FACTOR = 0.35f
 
+/** Saturation à 0 : ne garde que la luminosité de la texture peinte, pour l'orbe monochrome. */
+private val GRAYSCALE_FILTER = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
+
 private val IRIS_CYAN = Color(0xFF7FE9F5)
 private val IRIS_VIOLET = Color(0xFFB08CFF)
 private val IRIS_BLUE = Color(0xFF6E8BFF)
@@ -526,5 +543,4 @@ private val DANGER_DEEP = Color(0xFF7A2233)
 private val ICE_WHITE = Color(0xFFE6EEFF)
 private val VOID_INDIGO = Color(0xFF141033)
 
-private val GRAPHITE_LIGHT = Color(0xFFCACACA)
 private val GRAPHITE_DARK = Color(0xFF2B2B2E)

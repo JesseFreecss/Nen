@@ -379,7 +379,12 @@ class NenAccessibilityService : AccessibilityService() {
             if (root.findAccessibilityNodeInfosByViewId(id).isNotEmpty()) {
                 Log.d(TAG, "DÉTECTÉ (Instagram Reels) via le marqueur « $id »")
                 trackShortForm(ShortFormPlatform.INSTAGRAM_REELS, ::reelsSessionStartMs) {
-                    triggerBlock("Instagram Reels") { performGlobalAction(GLOBAL_ACTION_BACK) }
+                    // Comme pour Shorts (openYouTubeHome) : un simple retour arrière quitte
+                    // parfois l'app entière, les Reels étant un onglet de la barre du bas et
+                    // non un écran empilé. Sans ce lien profond, Instagram peut rouvrir sur
+                    // l'onglet Reels et redéclencher le blocage aussitôt, ce qui donnait
+                    // l'impression que fil d'actu, DM et paramètres étaient bloqués aussi.
+                    triggerBlock("Instagram Reels") { openInstagramHome() }
                 }
                 return
             }
@@ -469,6 +474,22 @@ class NenAccessibilityService : AccessibilityService() {
             startActivity(intent)
         } catch (e: Exception) {
             Log.w(TAG, "Ouverture de la home YouTube échouée (${e.message}), repli sur retour arrière")
+            performGlobalAction(GLOBAL_ACTION_BACK)
+        }
+    }
+
+    /**
+     * Ramène Instagram sur son fil d'actualité via un lien profond, même principe que
+     * [openYouTubeHome]. Repli sur un retour arrière si le lancement échoue.
+     */
+    private fun openInstagramHome() {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.instagram.com/"))
+                .setPackage(INSTAGRAM_PACKAGE)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            startActivity(intent)
+        } catch (e: Exception) {
+            Log.w(TAG, "Ouverture du fil Instagram échouée (${e.message}), repli sur retour arrière")
             performGlobalAction(GLOBAL_ACTION_BACK)
         }
     }
@@ -607,16 +628,18 @@ class NenAccessibilityService : AccessibilityService() {
         )
 
         /**
-         * Marqueurs structurels du pager Reels dans Instagram, confirmés par un dump
-         * `uiautomator` sur un Reel réel (comme pour [YOUTUBE_SHORTS_IDS]). Instagram obfusque
-         * moins ses id qu'attendu, mais les fait tout de même bouger d'une version à l'autre
-         * plus volontiers que YouTube : à revérifier si la détection cesse de fonctionner
-         * après une mise à jour de l'app.
+         * Marqueur structurel du lecteur plein écran des Reels dans Instagram, confirmé par un
+         * dump `uiautomator` sur un Reel réel (comme pour [YOUTUBE_SHORTS_IDS]).
+         *
+         * `root_clips_layout` et `clips_swipe_refresh_container` ont été retirés de cette liste :
+         * Instagram réutilise ces conteneurs génériques ailleurs (grille Reels du profil, rangée
+         * Reels de la recherche/explorer), ce qui déclenchait le blocage rien qu'en ouvrant DM,
+         * recherche ou profil. Seul `clips_viewer_view_pager` — le ViewPager2 plein écran propre
+         * à la LECTURE d'un Reel — est spécifique : les grilles utilisent un RecyclerView, jamais
+         * ce pager.
          */
         val INSTAGRAM_REELS_IDS: List<String> = listOf(
-            "com.instagram.android:id/clips_viewer_view_pager", // pager vertical des Reels
-            "com.instagram.android:id/root_clips_layout",       // racine de l'écran Reels
-            "com.instagram.android:id/clips_swipe_refresh_container"
+            "com.instagram.android:id/clips_viewer_view_pager"
         )
     }
 }
