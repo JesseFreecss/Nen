@@ -176,6 +176,7 @@ fun OrbField(
                         is OrbKind.Sound -> SoundOrb(playing = soundPlaying, diameter = diameter)
                         is OrbKind.Fault -> FaultOrb(diameter = diameter)
                         is OrbKind.Serment -> SermentOrb(diameter = diameter)
+                        is OrbKind.ShortForm -> ShortFormOrb(diameter = diameter)
                     }
                 }
             }

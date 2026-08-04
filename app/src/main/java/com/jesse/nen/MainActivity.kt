@@ -52,6 +52,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jesse.nen.accessibility.A11yHeartbeat
 import com.jesse.nen.accessibility.NenAccessibilityService
+import com.jesse.nen.accessibility.ShortFormDialog
 import com.jesse.nen.blocklist.KeywordViewModel
 import com.jesse.nen.blocklist.SermentDialog
 import com.jesse.nen.blocklist.VowUnlock
@@ -126,6 +127,7 @@ fun NenScreen(
     var showSermentDialog by remember { mutableStateOf(false) }
     var showPomodoro by remember { mutableStateOf(false) }
     var showAmbienceLibrary by remember { mutableStateOf(false) }
+    var showShortFormDialog by remember { mutableStateOf(false) }
     var shownFault by remember { mutableStateOf<FaultKind?>(null) }
 
     // Sélecteur de morceau. OpenDocument et non GetContent : lui seul donne une autorisation
@@ -280,6 +282,7 @@ fun NenScreen(
                 add(spec("fault:${fault.name}", OrbKind.Fault(fault), FAULT_BOX, density.density))
             }
             add(spec("serment", OrbKind.Serment, SERMENT_BOX, density.density))
+            add(spec("shortform", OrbKind.ShortForm, SHORTFORM_BOX, density.density))
         }
     }
 
@@ -306,6 +309,7 @@ fun NenScreen(
                     is OrbKind.Fault -> shownFault = kind.fault
                     is OrbKind.Serment -> requestSermentAccess()
                     is OrbKind.Sound -> showAmbienceLibrary = true
+                    is OrbKind.ShortForm -> showShortFormDialog = true
                 }
             },
             onLongPressOrb = {},
@@ -324,6 +328,10 @@ fun NenScreen(
 
     if (showPomodoro) {
         PomodoroDialog(state = pomodoro, onDismiss = { showPomodoro = false })
+    }
+
+    if (showShortFormDialog) {
+        ShortFormDialog(onDismiss = { showShortFormDialog = false })
     }
 
     if (showAmbienceLibrary) {
@@ -497,6 +505,7 @@ private val POMODORO_BOX = 31.dp
 private val SOUND_BOX = 31.dp
 private val FAULT_BOX = 29.dp
 private val SERMENT_BOX = 34.dp
+private val SHORTFORM_BOX = 31.dp
 
 /**
  * Indique si le service d'accessibilité de Nen est actuellement activé par l'utilisateur.

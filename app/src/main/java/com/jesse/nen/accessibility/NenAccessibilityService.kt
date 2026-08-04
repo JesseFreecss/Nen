@@ -13,6 +13,7 @@ import java.text.Normalizer
 import android.widget.Toast
 import com.jesse.nen.data.NenDatabase
 import com.jesse.nen.data.KeywordRepository
+import kotlin.reflect.KMutableProperty0
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -29,11 +30,15 @@ import kotlinx.coroutines.launch
  *    widget de l'écran d'accueil), qui est le cas le plus courant. Seul ce que l'utilisateur
  *    saisit est lu, jamais le texte statique des pages.
  *  - YouTube : repérer l'ouverture du lecteur "Shorts" via des marqueurs structurels de l'UI.
+ *  - Instagram : repérer l'ouverture des Reels, sur le même principe que les Shorts YouTube.
+ *
+ * Shorts et Reels ne sont pas bloqués systématiquement : chaque plateforme a un budget
+ * quotidien réglable (voir [ShortFormLimitPrefs]) ; seul le dépassement déclenche le blocage.
  *
  * Confidentialité / périmètre :
- *  - LISTE BLANCHE stricte : on ne traite QUE les apps déclarées (navigateurs + YouTube),
- *    à la fois via `android:packageNames` dans la config XML (filtrage système) et via une
- *    seconde vérification défensive ici. Aucune autre app n'est observée.
+ *  - LISTE BLANCHE stricte : on ne traite QUE les apps déclarées (navigateurs + YouTube +
+ *    Instagram), à la fois via `android:packageNames` dans la config XML (filtrage système)
+ *    et via une seconde vérification défensive ici. Aucune autre app n'est observée.
  *  - Tout se fait sur l'appareil, sans réseau.
  *
  * Sur détection positive (étape 4), on renvoie l'utilisateur à l'écran d'accueil
@@ -71,6 +76,12 @@ class NenAccessibilityService : AccessibilityService() {
     // passeraient toutes deux le test isShowing et empileraient deux écrans.
     @Volatile private var blockPending = false
 
+    // Session en cours dans le flux Reels/Shorts : horodatage (uptime) de son début, ou null
+    // hors du flux. Le temps écoulé est régulièrement reversé au cumul persisté du jour
+    // (voir shortFormFlush) et à la sortie du flux.
+    @Volatile private var reelsSessionStartMs: Long? = null
+    @Volatile private var shortsSessionStartMs: Long? = null
+
     /**
      * Signe de vie périodique. Il ne dépend PAS des événements reçus : sans app surveillée au
      * premier plan, aucun événement n'arrive, et l'absence de battement serait alors prise à
@@ -80,6 +91,19 @@ class NenAccessibilityService : AccessibilityService() {
         override fun run() {
             A11yHeartbeat.beat(this@NenAccessibilityService)
             mainHandler.postDelayed(this, A11yHeartbeat.BEAT_INTERVAL_MS)
+        }
+    }
+
+    /**
+     * Reverse périodiquement au cumul persisté le temps des sessions Reels/Shorts en cours,
+     * pour ne pas perdre la progression du jour si le process est tué (HyperOS) avant la
+     * sortie normale du flux.
+     */
+    private val shortFormFlush = object : Runnable {
+        override fun run() {
+            flushShortFormSession(ShortFormPlatform.INSTAGRAM_REELS, ::reelsSessionStartMs)
+            flushShortFormSession(ShortFormPlatform.YOUTUBE_SHORTS, ::shortsSessionStartMs)
+            mainHandler.postDelayed(this, SHORT_FORM_FLUSH_INTERVAL_MS)
         }
     }
 
@@ -106,6 +130,7 @@ class NenAccessibilityService : AccessibilityService() {
         // Premier battement immédiat : sans lui, l'app signalerait une protection morte
         // pendant la minute suivant chaque activation du service.
         mainHandler.post(heartbeat)
+        mainHandler.postDelayed(shortFormFlush, SHORT_FORM_FLUSH_INTERVAL_MS)
         Log.d(TAG, "Service d'accessibilité connecté")
     }
 
@@ -126,9 +151,10 @@ class NenAccessibilityService : AccessibilityService() {
             event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
         ) return
 
-        // Liste blanche défensive : navigateurs connus, app Google, et YouTube.
+        // Liste blanche défensive : navigateurs connus, app Google, YouTube et Instagram.
         when {
             pkg == YOUTUBE_PACKAGE -> checkYouTubeShorts()
+            pkg == INSTAGRAM_PACKAGE -> checkInstagramReels()
             pkg in WATCHED_SEARCH_PACKAGES -> checkSearchFields(pkg)
             else -> return
         }
@@ -328,15 +354,85 @@ class NenAccessibilityService : AccessibilityService() {
     private fun checkYouTubeShorts() {
         val root = rootInActiveWindow ?: return
         for (id in YOUTUBE_SHORTS_IDS) {
-            val found = root.findAccessibilityNodeInfosByViewId(id)
-            if (found.isNotEmpty()) {
+            if (root.findAccessibilityNodeInfosByViewId(id).isNotEmpty()) {
                 Log.d(TAG, "DÉTECTÉ (YouTube Shorts) via le marqueur « $id »")
-                // Shorts : on force YouTube à revenir sur SA page d'accueil (retire le Short
-                // de l'écran, contrairement au bouton Home qui ne fait que minimiser l'app).
-                triggerBlock("YouTube Shorts") { openYouTubeHome() }
+                trackShortForm(ShortFormPlatform.YOUTUBE_SHORTS, ::shortsSessionStartMs) {
+                    // Shorts : on force YouTube à revenir sur SA page d'accueil (retire le
+                    // Short de l'écran, contrairement au bouton Home qui ne fait que
+                    // minimiser l'app).
+                    triggerBlock("YouTube Shorts") { openYouTubeHome() }
+                }
                 return
             }
         }
+        // Plus dans le flux Shorts : on clôture une éventuelle session en cours.
+        flushShortFormSession(ShortFormPlatform.YOUTUBE_SHORTS, ::shortsSessionStartMs, endSession = true)
+    }
+
+    /**
+     * Détection des Reels Instagram in-app, même principe que les YouTube Shorts : marqueurs
+     * structurels du pager Reels par resource-id (voir [INSTAGRAM_REELS_IDS]).
+     */
+    private fun checkInstagramReels() {
+        val root = rootInActiveWindow ?: return
+        for (id in INSTAGRAM_REELS_IDS) {
+            if (root.findAccessibilityNodeInfosByViewId(id).isNotEmpty()) {
+                Log.d(TAG, "DÉTECTÉ (Instagram Reels) via le marqueur « $id »")
+                trackShortForm(ShortFormPlatform.INSTAGRAM_REELS, ::reelsSessionStartMs) {
+                    triggerBlock("Instagram Reels") { performGlobalAction(GLOBAL_ACTION_BACK) }
+                }
+                return
+            }
+        }
+        flushShortFormSession(ShortFormPlatform.INSTAGRAM_REELS, ::reelsSessionStartMs, endSession = true)
+    }
+
+    /**
+     * Tient la session en cours dans un flux Reels/Shorts : la démarre si elle ne l'est pas
+     * encore, et déclenche [onLimitReached] dès que le cumul du jour (déjà persisté + temps
+     * écoulé depuis le début de la session) dépasse le seuil réglé pour [platform].
+     *
+     * Le temps de la session n'est PAS reversé au cumul à chaque appel (trop fréquent, un
+     * événement de contenu peut arriver plusieurs fois par seconde) : seuls le flush
+     * périodique ([shortFormFlush]) et la sortie du flux le font.
+     */
+    private fun trackShortForm(
+        platform: ShortFormPlatform,
+        sessionStart: KMutableProperty0<Long?>,
+        onLimitReached: () -> Unit
+    ) {
+        val now = SystemClock.uptimeMillis()
+        val start = sessionStart.get()
+        if (start == null) {
+            sessionStart.set(now)
+            return
+        }
+        val elapsedSession = now - start
+        val accumulatedToday = ShortFormLimitPrefs.todayAccumulatedMs(this, platform)
+        val limitMs = ShortFormLimitPrefs.limitMinutes(this, platform) * 60_000L
+        if (accumulatedToday + elapsedSession >= limitMs) {
+            ShortFormLimitPrefs.addAccumulatedMs(this, platform, elapsedSession)
+            sessionStart.set(now)
+            onLimitReached()
+        }
+    }
+
+    /**
+     * Reverse le temps écoulé de la session en cours au cumul persisté du jour.
+     *
+     * @param endSession si vrai, referme la session (sortie du flux) ; sinon la relance
+     * immédiatement à partir de maintenant (flush périodique d'une session toujours active).
+     */
+    private fun flushShortFormSession(
+        platform: ShortFormPlatform,
+        sessionStart: KMutableProperty0<Long?>,
+        endSession: Boolean = false
+    ) {
+        val start = sessionStart.get() ?: return
+        val now = SystemClock.uptimeMillis()
+        val elapsed = now - start
+        if (elapsed > 0) ShortFormLimitPrefs.addAccumulatedMs(this, platform, elapsed)
+        sessionStart.set(if (endSession) null else now)
     }
 
     /**
@@ -383,6 +479,9 @@ class NenAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        // Ne pas perdre la progression du jour si le service s'arrête en pleine session.
+        flushShortFormSession(ShortFormPlatform.INSTAGRAM_REELS, ::reelsSessionStartMs, endSession = true)
+        flushShortFormSession(ShortFormPlatform.YOUTUBE_SHORTS, ::shortsSessionStartMs, endSession = true)
         scope.cancel()
         mainHandler.removeCallbacksAndMessages(null)
         // Filet de sécurité : ne jamais laisser l'écran de blocage derrière soi.
@@ -397,6 +496,10 @@ class NenAccessibilityService : AccessibilityService() {
         // même fenêtre (le lecteur Shorts émet ~10 événements/seconde).
         const val COOLDOWN_MS = 3_000L
 
+        // Cadence à laquelle le temps d'une session Reels/Shorts active est reversé au
+        // cumul persisté du jour.
+        const val SHORT_FORM_FLUSH_INTERVAL_MS = 15_000L
+
         // Bornes du parcours d'arbre à la recherche des champs de saisie.
         const val MAX_NODES_SCANNED = 300
         const val MAX_FIELDS = 8
@@ -408,6 +511,7 @@ class NenAccessibilityService : AccessibilityService() {
         val WHITESPACE = Regex("\\s+")
 
         const val YOUTUBE_PACKAGE = "com.google.android.youtube"
+        const val INSTAGRAM_PACKAGE = "com.instagram.android"
 
         /**
          * L'app Google : c'est elle qui s'ouvre depuis le widget de recherche de l'écran
@@ -500,6 +604,19 @@ class NenAccessibilityService : AccessibilityService() {
             "com.google.android.youtube:id/reel_watch_player",        // vue lecteur Shorts
             "com.google.android.youtube:id/reel_player_page_container",
             "com.google.android.youtube:id/reel_player_underlay"
+        )
+
+        /**
+         * Marqueurs structurels du pager Reels dans Instagram, confirmés par un dump
+         * `uiautomator` sur un Reel réel (comme pour [YOUTUBE_SHORTS_IDS]). Instagram obfusque
+         * moins ses id qu'attendu, mais les fait tout de même bouger d'une version à l'autre
+         * plus volontiers que YouTube : à revérifier si la détection cesse de fonctionner
+         * après une mise à jour de l'app.
+         */
+        val INSTAGRAM_REELS_IDS: List<String> = listOf(
+            "com.instagram.android:id/clips_viewer_view_pager", // pager vertical des Reels
+            "com.instagram.android:id/root_clips_layout",       // racine de l'écran Reels
+            "com.instagram.android:id/clips_swipe_refresh_container"
         )
     }
 }

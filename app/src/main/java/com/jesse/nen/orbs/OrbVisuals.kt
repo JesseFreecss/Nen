@@ -212,6 +212,40 @@ fun SermentOrb(
 }
 
 /**
+ * Budgets quotidiens des vidéos courtes (Reels Instagram, Shorts YouTube) : sobre comme le
+ * Serment, mais franchement noire là où le Serment reste indigo/glacé — sans quoi les deux se
+ * confondraient. Réutilise la même texture violette faute d'alternative dédiée, mais avec un
+ * `alphaScale` très réduit qui étouffe sa teinte propre (le violet n'apparaît qu'en fond très
+ * discret) ; l'anneau passe au gris graphite plutôt qu'au bleu glacé du Serment, seul élément
+ * qui reste net.
+ */
+@Composable
+fun ShortFormOrb(
+    modifier: Modifier = Modifier,
+    diameter: Dp = 31.dp
+) {
+    val elapsed = rememberElapsedMillis()
+    val breath = (sin(elapsed / 2200f) + 1f) / 2f
+    val spin = elapsed * 0.012f
+
+    HairyOrb(
+        modifier = modifier.semantics {
+            contentDescription = "Limites vidéos courtes, toucher pour régler"
+        },
+        diameter = diameter,
+        textureRes = R.drawable.orb_violet,
+        seed = 6,
+        washColor = Color.Black,
+        ringHot = GRAPHITE_LIGHT,
+        ringCool = GRAPHITE_DARK,
+        alphaScale = 0.40f,
+        spinDeg = spin,
+        ringAlpha = 0.80f + breath * 0.10f,
+        washAlpha = 0.22f + breath * 0.08f
+    )
+}
+
+/**
  * Le gabarit commun à toutes les orbes, en trois couches (du fond vers l'avant) :
  *  1. [washColor] : une teinte ambiante immense et très douce, qui déborde loin dans le fond —
  *     c'est elle qui donne l'impression que chaque orbe teinte tout un quart d'écran.
@@ -491,3 +525,6 @@ private val DANGER_DEEP = Color(0xFF7A2233)
 
 private val ICE_WHITE = Color(0xFFE6EEFF)
 private val VOID_INDIGO = Color(0xFF141033)
+
+private val GRAPHITE_LIGHT = Color(0xFFCACACA)
+private val GRAPHITE_DARK = Color(0xFF2B2B2E)

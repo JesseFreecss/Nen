@@ -27,6 +27,9 @@ sealed interface OrbKind {
 
     /** Le Serment de Nen : tous les mots bloqués, réunis dans une orbe unique. */
     data object Serment : OrbKind
+
+    /** Budgets quotidiens des Reels Instagram et des Shorts YouTube. */
+    data object ShortForm : OrbKind
 }
 
 enum class FaultKind { ACCESSIBILITY_OFF, ACCESSIBILITY_DEAD, BATTERY }
