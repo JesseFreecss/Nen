@@ -2,10 +2,8 @@ package com.jesse.nen.pomodoro
 
 import android.content.Context
 import com.jesse.nen.common.NenPrefs
-import kotlinx.coroutines.flow.MutableStateFlow
+import com.jesse.nen.common.SimpleStateHolder
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 
 /** Phase du cycle. [IDLE] = aucun pomodoro en cours. */
 enum class PomodoroPhase { IDLE, WORK, BREAK }
@@ -36,10 +34,10 @@ data class PomodoroState(
 
 /** État partagé entre le service (qui l'écrit) et l'UI (qui l'observe). */
 object PomodoroStateHolder {
-    private val _state = MutableStateFlow(PomodoroState())
-    val state: StateFlow<PomodoroState> = _state.asStateFlow()
+    private val holder = SimpleStateHolder(PomodoroState())
+    val state: StateFlow<PomodoroState> = holder.flow
 
-    internal fun update(transform: (PomodoroState) -> PomodoroState) = _state.update(transform)
+    internal fun update(transform: (PomodoroState) -> PomodoroState) = holder.update(transform)
 }
 
 /** Durées choisies par l'utilisateur, conservées d'une session à l'autre. */

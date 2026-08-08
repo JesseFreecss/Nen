@@ -3,9 +3,8 @@ package com.jesse.nen.sound
 import android.content.Context
 import android.net.Uri
 import com.jesse.nen.common.NenPrefs
-import kotlinx.coroutines.flow.MutableStateFlow
+import com.jesse.nen.common.SimpleStateHolder
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Le morceau d'ambiance choisi par l'utilisateur, et son volume.
@@ -38,10 +37,8 @@ object AmbiencePrefs {
 
 /** Écrit par [AmbienceService], observé par l'écran pour animer l'orbe. */
 object AmbienceStateHolder {
-    private val _playing = MutableStateFlow(false)
-    val playing: StateFlow<Boolean> = _playing.asStateFlow()
+    private val holder = SimpleStateHolder(false)
+    val playing: StateFlow<Boolean> = holder.flow
 
-    internal fun setPlaying(playing: Boolean) {
-        _playing.value = playing
-    }
+    internal fun setPlaying(playing: Boolean) = holder.set(playing)
 }
