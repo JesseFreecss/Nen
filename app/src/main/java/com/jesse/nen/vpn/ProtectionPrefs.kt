@@ -1,6 +1,7 @@
 package com.jesse.nen.vpn
 
 import android.content.Context
+import com.jesse.nen.common.NenPrefs
 
 /**
  * Mémorise l'INTENTION de l'utilisateur : « la protection doit-elle être active ? ».
@@ -10,13 +11,11 @@ import android.content.Context
  * un redémarrage du téléphone (voir [BootReceiver]).
  */
 object ProtectionPrefs {
-    private const val FILE = "nen_prefs"
     private const val KEY_ENABLED = "protection_enabled"
     private const val KEY_ENABLED_SINCE = "protection_enabled_since"
     private const val KEY_BATTERY_MUTED = "battery_warning_muted"
 
-    private fun prefs(context: Context) =
-        context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+    private fun prefs(context: Context) = NenPrefs.raw(context)
 
     fun setEnabled(context: Context, enabled: Boolean) {
         val prefs = prefs(context)

@@ -1,6 +1,7 @@
 package com.jesse.nen.pomodoro
 
 import android.content.Context
+import com.jesse.nen.common.NenPrefs
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -43,12 +44,10 @@ object PomodoroStateHolder {
 
 /** Durées choisies par l'utilisateur, conservées d'une session à l'autre. */
 object PomodoroPrefs {
-    private const val FILE = "nen_prefs"
     private const val KEY_WORK = "pomodoro_work_minutes"
     private const val KEY_BREAK = "pomodoro_break_minutes"
 
-    private fun prefs(context: Context) =
-        context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+    private fun prefs(context: Context) = NenPrefs.raw(context)
 
     fun workMinutes(context: Context): Int = prefs(context).getInt(KEY_WORK, DEFAULT_WORK_MINUTES)
 

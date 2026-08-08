@@ -2,6 +2,7 @@ package com.jesse.nen.sound
 
 import android.content.Context
 import android.net.Uri
+import com.jesse.nen.common.NenPrefs
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -14,12 +15,10 @@ import kotlinx.coroutines.flow.asStateFlow
  * musique dont il n'aurait pas les droits.
  */
 object AmbiencePrefs {
-    private const val FILE = "nen_prefs"
     private const val KEY_URI = "ambience_uri"
     private const val KEY_VOLUME = "ambience_volume"
 
-    private fun prefs(context: Context) =
-        context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+    private fun prefs(context: Context) = NenPrefs.raw(context)
 
     fun trackUri(context: Context): Uri? =
         prefs(context).getString(KEY_URI, null)?.let(Uri::parse)
