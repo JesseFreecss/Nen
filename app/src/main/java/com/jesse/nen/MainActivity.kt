@@ -2,16 +2,12 @@ package com.jesse.nen
 
 import android.Manifest
 import android.app.Activity
-import android.content.ActivityNotFoundException
-import android.content.ComponentName
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
-import android.os.PowerManager
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -20,16 +16,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -51,11 +41,14 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jesse.nen.accessibility.A11yHeartbeat
-import com.jesse.nen.accessibility.NenAccessibilityService
 import com.jesse.nen.accessibility.ShortFormDialog
 import com.jesse.nen.blocklist.KeywordViewModel
 import com.jesse.nen.blocklist.SermentDialog
 import com.jesse.nen.blocklist.VowUnlock
+import com.jesse.nen.common.isAccessibilityServiceEnabled
+import com.jesse.nen.common.isIgnoringBatteryOptimizations
+import com.jesse.nen.common.requestIgnoreBatteryOptimizations
+import com.jesse.nen.orbs.FaultDialog
 import com.jesse.nen.orbs.FaultKind
 import com.jesse.nen.orbs.OrbEngine
 import com.jesse.nen.orbs.OrbField
@@ -401,93 +394,6 @@ fun NenScreen(
 }
 
 /**
- * Ce qui manque, pourquoi c'est un problème, et le réglage qui le corrige.
- *
- * [onMute], quand il est fourni, permet de faire taire l'alerte définitivement : la demande
- * système d'exclusion de batterie reste sans effet sur certaines surcouches, et sans cette
- * porte de sortie l'orbe rouge resterait à l'écran quoi que fasse l'utilisateur.
- */
-@Composable
-private fun FaultDialog(
-    fault: FaultKind,
-    onDismiss: () -> Unit,
-    onAction: () -> Unit,
-    onMute: (() -> Unit)? = null
-) {
-    val title: String
-    val message: String
-    val actionLabel: String
-    when (fault) {
-        FaultKind.ACCESSIBILITY_OFF -> {
-            title = "Faille : surveillance in-app"
-            message = "Pour filtrer les URL dans les navigateurs et détecter les YouTube " +
-                "Shorts, activez « Protection Nen » dans les réglages d'accessibilité."
-            actionLabel = "Ouvrir les réglages"
-        }
-        FaultKind.ACCESSIBILITY_DEAD -> {
-            title = "Faille : surveillance interrompue"
-            message = "« Protection Nen » est activée dans les réglages, mais le service ne " +
-                "répond plus : le système l'a arrêté. Rien n'est surveillé pour le moment. " +
-                "Désactivez puis réactivez-la pour la relancer."
-            actionLabel = "Ouvrir les réglages"
-        }
-        FaultKind.BATTERY -> {
-            title = "Faille : batterie"
-            message = "Sans exclusion des optimisations de batterie, le système peut arrêter " +
-                "Nen en arrière-plan et la protection se coupe toute seule.\n\n" +
-                "Sur Xiaomi, le bouton ci-dessous n'ouvre pas la demande d'autorisation " +
-                "d'Android : HyperOS le détourne vers son propre écran « Détails de la " +
-                "batterie », qui ne peut pas accorder cette exclusion. Il n'y a alors rien à " +
-                "y faire de plus.\n\n" +
-                "Ce qui protège réellement Nen sur cet appareil : « Pas de restriction » dans " +
-                "cet écran Xiaomi, et le « démarrage automatique » autorisé. Une fois les " +
-                "deux faits, faites taire cette alerte — Android continuera de la signaler " +
-                "sans jamais pouvoir être satisfait."
-            actionLabel = "Ouvrir les réglages batterie"
-        }
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(16.dp),
-        title = {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.error
-            )
-        },
-        text = {
-            Column {
-                Text(
-                    text = message,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                if (onMute != null) {
-                    TextButton(onClick = onMute) {
-                        Text(
-                            text = "Ne plus signaler",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onAction) { Text(actionLabel) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Plus tard", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-    )
-}
-
-/**
  * Toutes les orbes suivent la même convention : la sphère occupe 0,30 de sa boîte de dessin,
  * le reste étant la marge où s'éteint le halo. Le rayon de collision est donc celui de la
  * sphère visible, halo exclu — deux halos peuvent se chevaucher, deux sphères non.
@@ -506,55 +412,3 @@ private val SOUND_BOX = 31.dp
 private val FAULT_BOX = 29.dp
 private val SERMENT_BOX = 34.dp
 private val SHORTFORM_BOX = 31.dp
-
-/**
- * Indique si le service d'accessibilité de Nen est actuellement activé par l'utilisateur.
- * On lit la liste système des services activés (Settings.Secure) et on y cherche notre composant.
- */
-private fun isAccessibilityServiceEnabled(context: Context): Boolean {
-    val expected = ComponentName(context, NenAccessibilityService::class.java)
-    val enabledServices = Settings.Secure.getString(
-        context.contentResolver,
-        Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-    ) ?: return false
-    return enabledServices.split(':').any { entry ->
-        ComponentName.unflattenFromString(entry) == expected
-    }
-}
-
-/** Indique si l'app est déjà exclue des optimisations de batterie. */
-private fun isIgnoringBatteryOptimizations(context: Context): Boolean {
-    val pm = context.getSystemService(PowerManager::class.java) ?: return false
-    return pm.isIgnoringBatteryOptimizations(context.packageName)
-}
-
-/**
- * Ouvre la demande système d'exclusion des optimisations de batterie.
- *
- * ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS affiche directement la boîte de dialogue
- * « Autoriser ? », mais certaines surcouches ne l'implémentent pas : on se replie alors sur
- * la liste complète des apps, où l'utilisateur choisit Nen à la main.
- */
-private fun requestIgnoreBatteryOptimizations(context: Context) {
-    val direct = Intent(
-        Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-        Uri.parse("package:${context.packageName}")
-    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    try {
-        context.startActivity(direct)
-    } catch (e: ActivityNotFoundException) {
-        try {
-            context.startActivity(
-                Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-        } catch (e2: ActivityNotFoundException) {
-            Toast.makeText(
-                context,
-                "Réglage introuvable : ouvrez Réglages > Batterie et retirez la restriction "
-                    + "pour Nen.",
-                Toast.LENGTH_LONG
-            ).show()
-        }
-    }
-}
