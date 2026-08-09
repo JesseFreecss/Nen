@@ -10,6 +10,7 @@ import android.graphics.PixelFormat
 import android.graphics.RadialGradient
 import android.graphics.Shader
 import android.graphics.Typeface
+import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 import android.view.Gravity
@@ -59,8 +60,11 @@ class AuraOverlay(private val context: Context) {
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             // Sans ça, l'overlay s'arrête sous la barre d'état et laisse une bande claire.
-            layoutInDisplayCutoutMode =
-                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            // Champ absent avant l'API 28 : minSdk est 26, donc protégé par version.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
         }
         overlay.fitsSystemWindows = false
 
