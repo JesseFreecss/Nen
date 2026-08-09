@@ -8,8 +8,11 @@ class ExplicitContentFilterTest {
 
     @Test
     fun `firstMatchOrNull detecte un grand site pour adultes connu`() {
-        val normalized = VowMatcher.normalize("www.pornhub.com/video")
-        assertEquals("pornhub", ExplicitContentFilter.firstMatchOrNull(normalized))
+        // "xvideos" plutôt que "pornhub" : les termes génériques sont vérifiés avant les noms
+        // de domaine dans EXPLICIT_KEYWORDS, donc "pornhub" matcherait d'abord sur "porn"
+        // (comportement d'origine, préservé — voir le test de sur-blocage ci-dessous).
+        val normalized = VowMatcher.normalize("www.xvideos.com/video")
+        assertEquals("xvideos", ExplicitContentFilter.firstMatchOrNull(normalized))
     }
 
     @Test
