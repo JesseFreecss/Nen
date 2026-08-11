@@ -1,10 +1,9 @@
 package com.jesse.nen.pomodoro
 
 import android.content.Context
-import kotlinx.coroutines.flow.MutableStateFlow
+import com.jesse.nen.common.NenPrefs
+import com.jesse.nen.common.SimpleStateHolder
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 
 /** Phase du cycle. [IDLE] = aucun pomodoro en cours. */
 enum class PomodoroPhase { IDLE, WORK, BREAK }
@@ -35,20 +34,18 @@ data class PomodoroState(
 
 /** État partagé entre le service (qui l'écrit) et l'UI (qui l'observe). */
 object PomodoroStateHolder {
-    private val _state = MutableStateFlow(PomodoroState())
-    val state: StateFlow<PomodoroState> = _state.asStateFlow()
+    private val holder = SimpleStateHolder(PomodoroState())
+    val state: StateFlow<PomodoroState> = holder.flow
 
-    internal fun update(transform: (PomodoroState) -> PomodoroState) = _state.update(transform)
+    internal fun update(transform: (PomodoroState) -> PomodoroState) = holder.update(transform)
 }
 
 /** Durées choisies par l'utilisateur, conservées d'une session à l'autre. */
 object PomodoroPrefs {
-    private const val FILE = "nen_prefs"
     private const val KEY_WORK = "pomodoro_work_minutes"
     private const val KEY_BREAK = "pomodoro_break_minutes"
 
-    private fun prefs(context: Context) =
-        context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+    private fun prefs(context: Context) = NenPrefs.raw(context)
 
     fun workMinutes(context: Context): Int = prefs(context).getInt(KEY_WORK, DEFAULT_WORK_MINUTES)
 

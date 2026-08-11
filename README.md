@@ -61,11 +61,8 @@ com/jesse/nen/
 ├── accessibility/      # service d'accessibilité, overlay de blocage « aura », heartbeat
 ├── pomodoro/           # minuteur : service au premier plan, état, dialogue
 ├── sound/              # ambiance sonore en boucle (service mediaPlayback)
-├── lockscreen/         # vide — le blocage est rendu par accessibility/AuraOverlay.kt
-└── timer/              # vide — remplacé par pomodoro/
+└── common/             # petites briques partagées (accès aux prefs, StateHolder générique)
 ```
-
-Les deux derniers dossiers ne contiennent qu'un `.gitkeep` hérité du découpage initial.
 
 ## Git
 

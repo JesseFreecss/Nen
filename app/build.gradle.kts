@@ -81,4 +81,7 @@ dependencies {
 
     // Outils Compose réservés au build de debug (aperçus @Preview dans Android Studio).
     debugImplementation(libs.androidx.ui.tooling)
+
+    // Tests unitaires JVM (src/test), sans dépendance au framework Android.
+    testImplementation(libs.junit)
 }

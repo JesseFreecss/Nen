@@ -1,6 +1,7 @@
 package com.jesse.nen.accessibility
 
 import android.content.Context
+import com.jesse.nen.common.NenPrefs
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -20,16 +21,13 @@ enum class ShortFormPlatform(val keyPrefix: String) {
  * pour le même principe appliqué aux durées de session).
  */
 object ShortFormLimitPrefs {
-    private const val FILE = "nen_prefs"
-
     const val DEFAULT_LIMIT_MINUTES = 15
     const val MIN_LIMIT_MINUTES = 5
     const val MAX_LIMIT_MINUTES = 180
 
     private val DAY_FORMAT = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
-    private fun prefs(context: Context) =
-        context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+    private fun prefs(context: Context) = NenPrefs.raw(context)
 
     fun limitMinutes(context: Context, platform: ShortFormPlatform): Int =
         prefs(context).getInt("${platform.keyPrefix}_limit_minutes", DEFAULT_LIMIT_MINUTES)

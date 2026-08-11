@@ -1,8 +1,7 @@
 package com.jesse.nen.vpn
 
-import kotlinx.coroutines.flow.MutableStateFlow
+import com.jesse.nen.common.SimpleStateHolder
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Petit dépôt d'état partagé (objet singleton) pour savoir si le VPN tourne.
@@ -14,10 +13,8 @@ import kotlinx.coroutines.flow.asStateFlow
  * plus tard (ex. relecture réelle de l'état du VPN).
  */
 object VpnStateHolder {
-    private val _running = MutableStateFlow(false)
-    val running: StateFlow<Boolean> = _running.asStateFlow()
+    private val holder = SimpleStateHolder(false)
+    val running: StateFlow<Boolean> = holder.flow
 
-    fun setRunning(value: Boolean) {
-        _running.value = value
-    }
+    fun setRunning(value: Boolean) = holder.set(value)
 }
