@@ -93,9 +93,21 @@ class NenAccessibilityService : AccessibilityService() {
      * Reverse périodiquement au cumul persisté le temps des sessions Reels/Shorts en cours,
      * pour ne pas perdre la progression du jour si le process est tué (HyperOS) avant la
      * sortie normale du flux.
+     *
+     * On RE-SONDE l'état courant (`checkInstagramReels`/`checkYouTubeShorts`) au lieu de
+     * flusher directement les trackers : un visionnage sans interaction (pas de défilement) ne
+     * génère parfois aucun événement de contenu pendant plusieurs dizaines de secondes, et sans
+     * ce sondage actif, l'absence d'événement aurait été prise à tort pour une sortie du flux.
+     * Sonder à chaque tic donne aussi à [ShortFormBudgetTracker.flush] un « maintenant » fiable
+     * (fenêtre active vérifiée à l'instant), ce qui n'est pas le cas d'un événement reçu tardivement
+     * d'une fenêtre déjà repassée en arrière-plan.
      */
     private val shortFormFlush = object : Runnable {
         override fun run() {
+            checkInstagramReels()
+            checkYouTubeShorts()
+            // Persiste la progression de la session en cours (si le sondage ci-dessus l'a
+            // laissée active) ; no-op si elle vient d'être refermée par le sondage.
             reelsTracker.flush(this@NenAccessibilityService)
             shortsTracker.flush(this@NenAccessibilityService)
             mainHandler.postDelayed(this, SHORT_FORM_FLUSH_INTERVAL_MS)
@@ -305,7 +317,19 @@ class NenAccessibilityService : AccessibilityService() {
     private fun checkYouTubeShorts() {
         val root = rootInActiveWindow ?: return
         for (id in WatchedApps.YOUTUBE_SHORTS_IDS) {
-            if (root.findAccessibilityNodeInfosByViewId(id).isNotEmpty()) {
+            // isVisibleToUser + fenêtre active : vérifié sur appareil, YouTube et Instagram
+            // continuent d'émettre des événements de contenu (et de rapporter leurs nœuds
+            // comme visibles) pour une fenêtre mise en arrière-plan (ex. appui sur Accueil)
+            // tant que le process n'est pas tué — rootInActiveWindow renvoie alors encore
+            // CETTE fenêtre. isActive (fenêtre touchée par l'utilisateur, ou avec le focus
+            // input) retombe à faux dès qu'une autre app (ou le launcher) prend la main,
+            // contrairement à isVisibleToUser qui ne regarde que la position du nœud DANS sa
+            // propre fenêtre. (isFocused a été essayé et écarté : un écran sans champ de
+            // saisie, comme le lecteur Reels/Shorts, n'a jamais le focus input, même au
+            // premier plan.)
+            if (root.findAccessibilityNodeInfosByViewId(id)
+                    .any { it.isVisibleToUser && it.window?.isActive == true }
+            ) {
                 Log.d(TAG, "DÉTECTÉ (YouTube Shorts) via le marqueur « $id »")
                 if (shortsTracker.onFlowDetected(this)) {
                     // Shorts : on force YouTube à revenir sur SA page d'accueil (retire le
@@ -327,7 +351,13 @@ class NenAccessibilityService : AccessibilityService() {
     private fun checkInstagramReels() {
         val root = rootInActiveWindow ?: return
         for (id in WatchedApps.INSTAGRAM_REELS_IDS) {
-            if (root.findAccessibilityNodeInfosByViewId(id).isNotEmpty()) {
+            // Voir le commentaire équivalent dans checkYouTubeShorts : isActive élimine à la
+            // fois le pager Reels resté attaché hors écran (autre onglet) ET la fenêtre
+            // Instagram mise en arrière-plan (Accueil pressé) qui continue de rapporter son
+            // nœud comme visible tant que l'app n'est pas tuée.
+            if (root.findAccessibilityNodeInfosByViewId(id)
+                    .any { it.isVisibleToUser && it.window?.isActive == true }
+            ) {
                 Log.d(TAG, "DÉTECTÉ (Instagram Reels) via le marqueur « $id »")
                 if (reelsTracker.onFlowDetected(this)) {
                     // Comme pour Shorts (openYouTubeHome) : un simple retour arrière quitte

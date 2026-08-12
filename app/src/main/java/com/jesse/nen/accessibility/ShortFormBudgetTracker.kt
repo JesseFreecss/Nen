@@ -9,6 +9,15 @@ import android.os.SystemClock
  * périodiquement le temps écoulé au cumul persisté ([ShortFormLimitPrefs]), pour ne pas
  * perdre la progression du jour si le process est tué (HyperOS) avant la sortie normale
  * du flux.
+ *
+ * [flush] n'est fiable que si l'appelant vient de RE-VÉRIFIER l'état courant du flux (voir
+ * `checkInstagramReels`/`checkYouTubeShorts`, appelées aussi bien sur événement d'accessibilité
+ * que par le minuteur périodique du service) : Instagram/YouTube continuent d'émettre des
+ * événements de contenu pour une fenêtre mise en arrière-plan (ex. appui sur Accueil) bien
+ * après que l'utilisateur ait quitté le flux, donc un flush qui se fierait à un ancien
+ * événement sans re-sonder l'état courant créditerait du temps fantôme. C'est pour ça que le
+ * minuteur périodique du service re-sonde la fenêtre active à chaque tic plutôt que d'appeler
+ * [flush] à l'aveugle.
  */
 internal class ShortFormBudgetTracker(private val platform: ShortFormPlatform) {
 
