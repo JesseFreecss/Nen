@@ -15,9 +15,15 @@ class KeywordRepository(private val dao: BlockedKeywordDao) {
     /** Snapshot courant des mots-clés en minuscules (pour le VpnService). */
     suspend fun currentKeywords(): List<String> = dao.getAllKeywords()
 
-    /** Ajoute un mot-clé (nettoyé + minuscules). Ignore les chaînes vides. */
+    /**
+     * Ajoute un mot-clé (nettoyé + minuscules). Ignore les chaînes vides.
+     *
+     * Passe par [DomainEntry.normalize] pour ramener une URL collée (ex. copiée depuis un
+     * navigateur, "https://fkbae.to/forum") à son domaine nu ("fkbae.to") : c'est ce que
+     * [com.jesse.nen.vpn.NenVpnService] compare aux requêtes DNS.
+     */
     suspend fun add(rawWord: String) {
-        val word = rawWord.trim().lowercase()
+        val word = DomainEntry.normalize(rawWord)
         if (word.isNotEmpty()) {
             dao.insert(BlockedKeyword(keyword = word))
         }
