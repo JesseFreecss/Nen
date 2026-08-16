@@ -10,13 +10,12 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 /**
  * Point d'entrée de la base Room. Liste les entités (tables) et expose les DAO.
  *
- * version = 3 : ajout de la table `ambience_tracks`, la bibliothèque de morceaux
- * d'ambiance (voir MIGRATION_2_3).
+ * version = 4 : normalisation des mots-clés déjà en base (voir MIGRATION_3_4).
  * exportSchema = false : on ne génère pas le fichier de schéma JSON (pas utile ici).
  */
 @Database(
     entities = [BlockedKeyword::class, AmbienceTrack::class],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class NenDatabase : RoomDatabase() {
@@ -62,6 +61,51 @@ abstract class NenDatabase : RoomDatabase() {
         }
 
         /**
+         * Migration v3 -> v4 : applique [DomainEntry.normalize] aux mots-clés déjà en base.
+         *
+         * KeywordRepository.add() normalise désormais les URLs collées ("https://fkbae.to"
+         * -> "fkbae.to") avant insertion, mais les entrées ajoutées avant ce correctif sont
+         * restées telles quelles en base — et donc jamais comparées avec succès aux noms
+         * d'hôte bruts extraits des requêtes DNS par NenVpnService (blocage silencieusement
+         * inopérant pour ces entrées-là).
+         *
+         * Traite les lignes par id croissant : si la forme normalisée d'une ligne a déjà été
+         * vue (doublon révélé par la normalisation, ex. "https://fkbae.to" et "fkbae.to"
+         * coexistants), la ligne la plus récente est supprimée plutôt que de violer l'index
+         * UNIQUE sur `keyword`.
+         */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val seen = mutableSetOf<String>()
+                val toDelete = mutableListOf<Long>()
+                val toUpdate = mutableListOf<Pair<Long, String>>()
+                db.query("SELECT id, keyword FROM blocked_keywords ORDER BY id").use { cursor ->
+                    val idIdx = cursor.getColumnIndexOrThrow("id")
+                    val keywordIdx = cursor.getColumnIndexOrThrow("keyword")
+                    while (cursor.moveToNext()) {
+                        val id = cursor.getLong(idIdx)
+                        val keyword = cursor.getString(keywordIdx)
+                        val normalized = DomainEntry.normalize(keyword)
+                        if (normalized.isEmpty() || !seen.add(normalized)) {
+                            toDelete.add(id)
+                        } else if (normalized != keyword) {
+                            toUpdate.add(id to normalized)
+                        }
+                    }
+                }
+                toDelete.forEach { id ->
+                    db.execSQL("DELETE FROM blocked_keywords WHERE id = ?", arrayOf(id))
+                }
+                toUpdate.forEach { (id, normalized) ->
+                    db.execSQL(
+                        "UPDATE blocked_keywords SET keyword = ? WHERE id = ?",
+                        arrayOf(normalized, id)
+                    )
+                }
+            }
+        }
+
+        /**
          * Renvoie l'unique instance de la base (patron Singleton), en la créant au besoin.
          * Une seule connexion SQLite partagée par l'app (UI + VpnService).
          */
@@ -72,7 +116,7 @@ abstract class NenDatabase : RoomDatabase() {
                     NenDatabase::class.java,
                     "nen.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build().also { INSTANCE = it }
             }
     }
