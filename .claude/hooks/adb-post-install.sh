@@ -20,7 +20,8 @@ process.stdin.on("end",()=>{
 ')"
 
 case "$command" in
-  *"adb install"*|*"gradlew"*"install"*) ;;
+  # "adb "*"install"* (pas "adb install" littéral) : couvre aussi "adb -s SERIAL install -r ...".
+  *"adb "*"install"*|*"gradlew"*"install"*) ;;
   *) exit 0 ;;
 esac
 
