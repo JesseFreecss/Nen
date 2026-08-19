@@ -77,6 +77,11 @@ class NenAccessibilityService : AccessibilityService() {
     private val reelsTracker = ShortFormBudgetTracker(ShortFormPlatform.INSTAGRAM_REELS)
     private val shortsTracker = ShortFormBudgetTracker(ShortFormPlatform.YOUTUBE_SHORTS)
 
+    // Anti-rebond de l'auto-réparation (voir probeWindowContentOrHeal) : évite de rappeler
+    // setServiceInfo à chaque événement de la rafale (YouTube/Instagram en émettent des
+    // dizaines par seconde) une fois le problème détecté.
+    @Volatile private var lastHealAttemptAt = 0L
+
     /**
      * Signe de vie périodique. Il ne dépend PAS des événements reçus : sans app surveillée au
      * premier plan, aucun événement n'arrive, et l'absence de battement serait alors prise à
@@ -160,11 +165,36 @@ class NenAccessibilityService : AccessibilityService() {
 
         // Liste blanche défensive : navigateurs connus, app Google, YouTube et Instagram.
         when {
-            pkg == WatchedApps.YOUTUBE_PACKAGE -> checkYouTubeShorts()
-            pkg == WatchedApps.INSTAGRAM_PACKAGE -> checkInstagramReels()
+            pkg == WatchedApps.YOUTUBE_PACKAGE -> checkYouTubeShorts(fromWatchedEvent = true)
+            pkg == WatchedApps.INSTAGRAM_PACKAGE -> checkInstagramReels(fromWatchedEvent = true)
             pkg in WatchedApps.WATCHED_SEARCH_PACKAGES -> checkSearchFields(pkg)
             else -> return
         }
+    }
+
+    /**
+     * Renvoie [rootInActiveWindow], et déclenche une auto-réparation s'il est null alors qu'un
+     * ÉVÉNEMENT venait de confirmer qu'une app surveillée est au premier plan (paramètre
+     * [fromWatchedEvent]) : un `null` dans ce cas précis n'est PAS normal (contrairement à un
+     * sondage périodique à l'aveugle, où `null` signifie simplement qu'aucune app surveillée
+     * n'est active — cf. doc de [android.accessibilityservice.AccessibilityService.getRootInActiveWindow]).
+     *
+     * Constaté sur l'appareil de test (HyperOS) : après que le système a tué puis relancé le
+     * process du service, celui-ci reste lié et continue de battre ([A11yHeartbeat]), mais
+     * perd silencieusement l'accès au contenu des fenêtres — `rootInActiveWindow` renvoie
+     * `null` même pour la fenêtre active. Revalider la config via [setServiceInfo] (comme le
+     * fait le système normalement à la connexion) suffit à rétablir l'accès, sans recréer le
+     * service ni repasser par les réglages d'accessibilité.
+     */
+    private fun probeWindowContentOrHeal(fromWatchedEvent: Boolean): AccessibilityNodeInfo? {
+        val root = rootInActiveWindow
+        if (root != null || !fromWatchedEvent) return root
+        val now = SystemClock.uptimeMillis()
+        if (now - lastHealAttemptAt < HEAL_COOLDOWN_MS) return null
+        lastHealAttemptAt = now
+        Log.w(TAG, "Contenu de fenêtre inaccessible malgré une app surveillée au premier plan : ré-enregistrement du service")
+        serviceInfo?.let { setServiceInfo(it) }
+        return null
     }
 
     /**
@@ -314,8 +344,8 @@ class NenAccessibilityService : AccessibilityService() {
      * par leur resource-id. Si l'une d'elles est présente dans la fenêtre active, on est
      * (très probablement) dans le flux Shorts.
      */
-    private fun checkYouTubeShorts() {
-        val root = rootInActiveWindow ?: return
+    private fun checkYouTubeShorts(fromWatchedEvent: Boolean = false) {
+        val root = probeWindowContentOrHeal(fromWatchedEvent) ?: return
         for (id in WatchedApps.YOUTUBE_SHORTS_IDS) {
             // isVisibleToUser + fenêtre active : vérifié sur appareil, YouTube et Instagram
             // continuent d'émettre des événements de contenu (et de rapporter leurs nœuds
@@ -348,8 +378,8 @@ class NenAccessibilityService : AccessibilityService() {
      * Détection des Reels Instagram in-app, même principe que les YouTube Shorts : marqueurs
      * structurels du pager Reels par resource-id (voir [WatchedApps.INSTAGRAM_REELS_IDS]).
      */
-    private fun checkInstagramReels() {
-        val root = rootInActiveWindow ?: return
+    private fun checkInstagramReels(fromWatchedEvent: Boolean = false) {
+        val root = probeWindowContentOrHeal(fromWatchedEvent) ?: return
         for (id in WatchedApps.INSTAGRAM_REELS_IDS) {
             // Voir le commentaire équivalent dans checkYouTubeShorts : isActive élimine à la
             // fois le pager Reels resté attaché hors écran (autre onglet) ET la fenêtre
@@ -453,6 +483,9 @@ class NenAccessibilityService : AccessibilityService() {
         // Cadence à laquelle le temps d'une session Reels/Shorts active est reversé au
         // cumul persisté du jour.
         const val SHORT_FORM_FLUSH_INTERVAL_MS = 15_000L
+
+        // Délai minimal entre deux tentatives d'auto-réparation (voir probeWindowContentOrHeal).
+        const val HEAL_COOLDOWN_MS = 10_000L
 
         // Bornes du parcours d'arbre à la recherche des champs de saisie.
         const val MAX_NODES_SCANNED = 300
