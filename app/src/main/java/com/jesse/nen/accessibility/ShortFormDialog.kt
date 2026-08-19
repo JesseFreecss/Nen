@@ -36,6 +36,16 @@ fun ShortFormDialog(onDismiss: () -> Unit) {
         mutableIntStateOf(ShortFormLimitPrefs.limitMinutes(context, ShortFormPlatform.YOUTUBE_SHORTS))
     }
 
+    // Déjà consommé aujourd'hui, lu une fois à l'ouverture (revient à 0 tout seul le
+    // lendemain, cf. ShortFormLimitPrefs.todayAccumulatedMs). Sert à calculer le temps
+    // restant, y compris en direct si la limite est ajustée avec − / +.
+    val reelsAccumulatedMs = remember {
+        ShortFormLimitPrefs.todayAccumulatedMs(context, ShortFormPlatform.INSTAGRAM_REELS)
+    }
+    val shortsAccumulatedMs = remember {
+        ShortFormLimitPrefs.todayAccumulatedMs(context, ShortFormPlatform.YOUTUBE_SHORTS)
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surface,
@@ -56,6 +66,7 @@ fun ShortFormDialog(onDismiss: () -> Unit) {
                     range = ShortFormLimitPrefs.MIN_LIMIT_MINUTES..ShortFormLimitPrefs.MAX_LIMIT_MINUTES,
                     onChange = { reelsMinutes = it }
                 )
+                RemainingText(limitMinutes = reelsMinutes, accumulatedMs = reelsAccumulatedMs)
                 MinutesRow(
                     label = "Shorts YouTube",
                     minutes = shortsMinutes,
@@ -64,6 +75,7 @@ fun ShortFormDialog(onDismiss: () -> Unit) {
                     onChange = { shortsMinutes = it },
                     modifier = Modifier.padding(top = 8.dp)
                 )
+                RemainingText(limitMinutes = shortsMinutes, accumulatedMs = shortsAccumulatedMs)
                 Text(
                     text = "Budget par jour, séparément pour chaque plateforme. Une fois " +
                         "dépassé, Nen referme le flux ; le compteur repart de zéro le " +
@@ -89,6 +101,24 @@ fun ShortFormDialog(onDismiss: () -> Unit) {
             }
         }
     )
+}
+
+/** Temps restant aujourd'hui pour une plateforme, déduit de la limite et du déjà consommé. */
+@Composable
+private fun RemainingText(limitMinutes: Int, accumulatedMs: Long) {
+    val remainingMinutes = (limitMinutes * 60_000L - accumulatedMs)
+        .coerceAtLeast(0L) / 60_000L
+    Text(
+        text = "Reste aujourd'hui : ${formatMinutes(remainingMinutes)}",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+}
+
+private fun formatMinutes(minutes: Long): String {
+    val hours = minutes / 60
+    val remainder = minutes % 60
+    return if (hours > 0) "${hours} h ${remainder} min" else "${remainder} min"
 }
 
 /** Ligne de réglage : intitulé, − / +, valeur en minutes. */
